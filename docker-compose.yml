@@ -1,0 +1,18 @@
+# Local dev database. Host port 54329 so it doesn't clash with another Postgres on 5432.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "54329:5432"
+    volumes:
+      - pitaka-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  pitaka-pgdata:

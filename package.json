@@ -1,0 +1,33 @@
+{
+  "name": "pitaka",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal expense tracker fed by BPI email alerts",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start",
+    "test": "tsx --test lib/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose -p pitaka up -d",
+    "db:down": "docker compose -p pitaka down",
+    "db:psql": "docker exec -it pitaka-postgres-1 psql -U postgres",
+    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "dependencies": {
+    "next": "^16.3.6",
+    "postgres": "^3.4.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
