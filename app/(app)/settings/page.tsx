@@ -1,8 +1,10 @@
 import { headers } from "next/headers";
-import { addRule, deleteRule, logout } from "@/app/actions";
+import { addRule, deleteRule, deleteSource, logout } from "@/app/actions";
+import SourceForm from "@/components/SourceForm";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
-import { getRules } from "@/lib/queries";
+import { getLastIngest, getRules, getSources } from "@/lib/queries";
+import { gmailQuery } from "@/lib/sources";
 
 export default async function Settings() {
   const h = await headers();
@@ -10,36 +12,79 @@ export default async function Settings() {
   const proto = h.get("x-forwarded-proto") ?? "https";
   const webhook = `${proto}://${host}/api/ingest`;
 
-  const [rules, [last]] = await Promise.all([
+  const [rules, sources, [totals], lastRun] = await Promise.all([
     getRules(),
+    getSources(),
     query<{ at: Date | null; n: number }>(
       `select max(created_at) as at, count(*)::int as n from transactions where source = 'email'`,
     ),
+    getLastIngest(),
   ]);
 
   return (
     <>
-      <h1>Settings</h1>
+      <header className="page-head">
+        <p className="eyebrow">Account</p>
+        <h1>Settings</h1>
+      </header>
 
       <section className="card">
-        <h2>BPI email sync</h2>
+        <h2>Email from</h2>
         <p className="small muted" style={{ margin: 0 }}>
-          {last.n
-            ? `${last.n} transactions imported from email. Last one received ${last.at?.toLocaleString("en-PH", { timeZone: "Asia/Manila" })}.`
+          Gmail only pulls alerts from these senders. Add a domain or a full address —{" "}
+          <code>gcash.com</code>, <code>maya.ph</code>, <code>alerts@bpi.com.ph</code>. The script
+          picks this list up on the next sync. Parsing is still best for BPI until we add more
+          bank formats.
+        </p>
+        <SourceForm />
+        {sources.length > 0 && (
+          <ul className="rule-list">
+            {sources.map((s) => (
+              <li key={s.id} className="rule-row">
+                <div>
+                  <div className="txn-title">{s.sender}</div>
+                  <div className="txn-meta"><span className="chip">from:</span></div>
+                </div>
+                <form action={deleteSource}>
+                  <input type="hidden" name="id" value={s.id} />
+                  <button className="btn danger" aria-label={`Remove ${s.sender}`}>Remove</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="small muted" style={{ margin: 0 }}>
+          Gmail query: <code>{gmailQuery(sources.map((s) => s.sender))}</code>
+        </p>
+      </section>
+
+      <section className="card">
+        <h2>Email sync</h2>
+        <p className="small muted" style={{ margin: 0 }}>
+          {totals.n
+            ? `${totals.n} transaction${totals.n === 1 ? "" : "s"} imported from email. Last one received ${totals.at?.toLocaleString("en-PH", { timeZone: "Asia/Manila" })}.`
             : "Nothing imported from email yet."}
         </p>
+        {lastRun && (
+          <p className="small muted" style={{ margin: 0 }}>
+            Last ingest: {lastRun.inserted} new, {lastRun.duplicates} already saved, {lastRun.skipped} skipped
+            (of {lastRun.received} emails).
+          </p>
+        )}
         <ol className="steps">
-          <li>In the BPI app, turn on email notifications for transactions.</li>
+          <li>Turn on email notifications in BPI, GCash, Maya, or whatever you added above.</li>
           <li>
-            Open <a href="https://script.google.com" style={{ color: "var(--accent)" }}>script.google.com</a>, create a
-            project, paste <code>apps-script/Code.gs</code> from this repo.
+            Open <a href="https://script.google.com">script.google.com</a>, paste the latest{" "}
+            <code>apps-script/Code.gs</code> from this repo (replace the old file).
           </li>
           <li>
             Project Settings → Script properties: <code>WEBHOOK_URL</code> = <code>{webhook}</code> and{" "}
-            <code>INGEST_SECRET</code> = the same value as in Vercel.
+            <code>INGEST_SECRET</code> = the same value as in Vercel / <code>.env.local</code>.
           </li>
           <li>
-            Run <code>install</code> once (checks Gmail every minute), then <code>backfill</code> to import past emails.
+            In the function dropdown pick <code>backfill</code> and Run. That is what imports
+            September. <code>preview</code> only logs. <code>install</code> only watches new mail
+            from the last 24 hours. If Gmail finds nothing, the run turns red with the search it used.
           </li>
         </ol>
       </section>
@@ -60,10 +105,10 @@ export default async function Settings() {
           <button className="btn" style={{ gridColumn: "1 / -1" }}>Add rule</button>
         </form>
         {rules.length > 0 && (
-          <ul className="txns">
+          <ul className="rule-list">
             {rules.map((r) => (
-              <li key={r.id} className="txn">
-                <div className="txn-main">
+              <li key={r.id} className="rule-row">
+                <div>
                   <div className="txn-title">{r.keyword}</div>
                   <div className="txn-meta"><span className="chip">{r.category}</span></div>
                 </div>

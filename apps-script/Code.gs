@@ -5,14 +5,15 @@
  *   1. Project Settings → Script properties:
  *        WEBHOOK_URL    = https://<your-app>.vercel.app/api/ingest
  *        INGEST_SECRET  = same value as INGEST_SECRET in Vercel
- *        GMAIL_QUERY    = (optional) defaults to BPI senders
+ *        GMAIL_QUERY    = (optional) one extra Gmail search, used as-is
  *   2. Run `install` once and grant access. It checks for new emails every minute.
- *   3. Run `backfill` to import September (re-run if it pauses — it resumes).
+ *   3. Run `backfill` to import September. That is what writes to Pitaka.
  *
  * Re-sending an email is harmless: the server de-duplicates by Gmail message id.
  */
 
-const DEFAULT_QUERY = 'from:(bpi.com.ph OR bpiexpressonline.com)';
+const DEFAULT_SENDERS = ['bpi.com.ph', 'bpiexpressonline.com'];
+const DEFAULT_SUBJECTS = ['Interbank Funds Transfer Confirmation'];
 const BATCH = 15;
 
 // Full-month backfill target. Change these and re-run `backfill` for another month.
@@ -27,64 +28,52 @@ function props_() {
 function sync() {
   const p = props_();
   const last = Number(p.getProperty('LAST_SYNC_MS') || 0) || Date.now() - 24 * 3600 * 1000;
-  // Gmail's after: is day-granular in practice, so look back a day and filter by time here.
   const afterSec = Math.floor((last - 24 * 3600 * 1000) / 1000);
-  const messages = collect_(`${query_()} after:${afterSec}`, (m) => m.getDate().getTime() > last);
+  const messages = search_(clauses_().map((c) => c + ' after:' + afterSec), function (m) {
+    return m.getDate().getTime() > last;
+  });
   if (!messages.length) return;
 
   send_(messages);
-  const newest = Math.max.apply(null, messages.map((m) => Date.parse(m.date)));
+  const newest = Math.max.apply(
+    null,
+    messages.map((m) => Date.parse(m.date)),
+  );
   p.setProperty('LAST_SYNC_MS', String(newest));
 }
 
 /**
- * Import every BPI alert in BACKFILL_YEAR / BACKFILL_MONTH.
- * Safe to re-run: it resumes from the last thread page and the server de-dups.
+ * Import every matching alert in BACKFILL_YEAR / BACKFILL_MONTH.
+ * This is the function that fills Pitaka. preview() only logs.
  */
 function backfill() {
-  const y = BACKFILL_YEAR;
-  const mo = BACKFILL_MONTH;
-  const next = mo === 12 ? { y: y + 1, mo: 1 } : { y: y, mo: mo + 1 };
-  const after = `${y}/${pad_(mo)}/01`;
-  const before = `${next.y}/${pad_(next.mo)}/01`;
-  const startBound = new Date(y, mo - 1, 1).getTime();
-  const endBound = new Date(next.y, next.mo - 1, 1).getTime();
-
-  const p = props_();
-  const cursorKey = `BACKFILL_${y}_${pad_(mo)}_THREAD`;
-  let start = Number(p.getProperty(cursorKey) || 0);
-  let sent = 0;
-
-  for (;;) {
-    const threads = GmailApp.search(`${query_()} after:${after} before:${before}`, start, 20);
-    if (!threads.length) break;
-
-    const batch = [];
-    threads.forEach((t) =>
-      t.getMessages().forEach((m) => {
-        const ts = m.getDate().getTime();
-        if (ts < startBound || ts >= endBound) return;
-        batch.push(toPayload_(m));
-      }),
+  const messages = monthMessages_();
+  if (!messages.length) {
+    throw new Error(
+      'Gmail found 0 emails for ' +
+        BACKFILL_YEAR +
+        '-' +
+        pad_(BACKFILL_MONTH) +
+        '. Searched: ' +
+        monthQueries_().join(' | ') +
+        '. Use the same Google account that has the BPI mail. ' +
+        'In Gmail try: subject:"Interbank Funds Transfer Confirmation"',
     );
-    if (batch.length) {
-      send_(batch);
-      sent += batch.length;
-    }
-    start += threads.length;
-    p.setProperty(cursorKey, String(start));
-    if (threads.length < 20) break;
   }
-
-  p.deleteProperty(cursorKey);
-  console.log(`Backfill ${y}-${pad_(mo)} sent ${sent} emails`);
+  send_(messages);
+  console.log('Backfill sent ' + messages.length + ' emails');
 }
 
-/** Clears a paused September (or current BACKFILL_*) run so the next `backfill` starts over. */
-function resetBackfill() {
-  const key = `BACKFILL_${BACKFILL_YEAR}_${pad_(BACKFILL_MONTH)}_THREAD`;
-  props_().deleteProperty(key);
-  console.log('Backfill cursor cleared. Run backfill again.');
+/** Logs September matches. Does not write to Pitaka. */
+function preview() {
+  const queries = monthQueries_();
+  const messages = monthMessages_();
+  queries.forEach((q) => console.log('Search: ' + q));
+  messages.forEach((m) => console.log(m.date + ' | ' + m.subject));
+  console.log('Messages: ' + messages.length);
+  if (!messages.length) {
+    throw new Error('Gmail found 0 emails. Searched: ' + queries.join(' | '));
+  }
 }
 
 /** Creates the every-minute trigger (safe to run more than once). */
@@ -94,30 +83,101 @@ function install() {
     .forEach((t) => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('sync').timeBased().everyMinutes(1).create();
   sync();
-  console.log('Installed. Pitaka will check Gmail every minute.');
+  console.log('Installed. Pitaka will check Gmail every minute. Run backfill for September.');
 }
 
-function query_() {
-  return props_().getProperty('GMAIL_QUERY') || DEFAULT_QUERY;
+function monthQueries_() {
+  const y = BACKFILL_YEAR;
+  const mo = BACKFILL_MONTH;
+  const next = mo === 12 ? { y: y + 1, mo: 1 } : { y: y, mo: mo + 1 };
+  const after = y + '/' + pad_(mo) + '/01';
+  const before = next.y + '/' + pad_(next.mo) + '/01';
+  return clauses_().map((c) => c + ' after:' + after + ' before:' + before);
+}
+
+function monthMessages_() {
+  const y = BACKFILL_YEAR;
+  const mo = BACKFILL_MONTH;
+  const next = mo === 12 ? { y: y + 1, mo: 1 } : { y: y, mo: mo + 1 };
+  const startBound = new Date(y, mo - 1, 1).getTime();
+  const endBound = new Date(next.y, next.mo - 1, 1).getTime();
+  return search_(monthQueries_(), function (m) {
+    const ts = m.getDate().getTime();
+    return ts >= startBound && ts < endBound;
+  });
+}
+
+/**
+ * One simple Gmail clause per sender / subject.
+ * Gmail silently drops date filters when they sit next to OR, so we never OR them.
+ */
+function clauses_() {
+  const override = props_().getProperty('GMAIL_QUERY');
+  if (override) return [override];
+
+  const src = sources_();
+  const out = [];
+  src.senders.forEach((s) => out.push('from:' + s));
+  src.subjects.forEach((s) => out.push('subject:"' + s + '"'));
+  return out;
+}
+
+function sources_() {
+  const p = props_();
+  const url = p.getProperty('WEBHOOK_URL');
+  const secret = p.getProperty('INGEST_SECRET');
+  if (url && secret) {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + secret, 'Cache-Control': 'no-cache' },
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() === 200) {
+      const data = JSON.parse(res.getContentText());
+      if (data && (data.senders || data.subjects || data.query)) {
+        p.setProperty('CACHED_SOURCES', res.getContentText());
+        return normalizeSources_(data);
+      }
+    }
+  }
+  const cached = p.getProperty('CACHED_SOURCES');
+  if (cached) {
+    try {
+      return normalizeSources_(JSON.parse(cached));
+    } catch (e) {}
+  }
+  return { senders: DEFAULT_SENDERS, subjects: DEFAULT_SUBJECTS };
+}
+
+function normalizeSources_(data) {
+  const senders = Array.isArray(data.senders) && data.senders.length ? data.senders : DEFAULT_SENDERS;
+  const subjects =
+    Array.isArray(data.subjects) && data.subjects.length ? data.subjects : DEFAULT_SUBJECTS;
+  return { senders: senders, subjects: subjects };
+}
+
+function search_(queries, keep) {
+  const seen = {};
+  const out = [];
+  queries.forEach((q) => {
+    for (let start = 0; ; start += 20) {
+      const threads = GmailApp.search(q, start, 20);
+      threads.forEach((t) =>
+        t.getMessages().forEach((m) => {
+          const id = m.getId();
+          if (seen[id] || !keep(m)) return;
+          seen[id] = true;
+          out.push(toPayload_(m));
+        }),
+      );
+      if (threads.length < 20) break;
+    }
+  });
+  return out;
 }
 
 function pad_(n) {
   return n < 10 ? '0' + n : String(n);
-}
-
-function collect_(q, keep) {
-  const out = [];
-  for (let start = 0; ; start += 100) {
-    const threads = GmailApp.search(q, start, 100);
-    threads.forEach((t) =>
-      t.getMessages().forEach((m) => {
-        if (!keep(m)) return;
-        out.push(toPayload_(m));
-      }),
-    );
-    if (threads.length < 100) break;
-  }
-  return out;
 }
 
 function toPayload_(m) {
@@ -163,7 +223,6 @@ function send_(messages) {
       muteHttpExceptions: true,
     });
     const code = res.getResponseCode();
-    // Throwing keeps LAST_SYNC_MS / the backfill cursor unchanged, so the next run retries.
     if (code !== 200) throw new Error('Pitaka webhook returned ' + code + ': ' + res.getContentText());
     console.log(res.getContentText());
   }

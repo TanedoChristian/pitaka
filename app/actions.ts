@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { checkPassword, requireAuth, SESSION_COOKIE, SESSION_MAX_AGE, sessionToken } from "@/lib/auth";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
+import { normalizeSender } from "@/lib/sources";
 
 // ---------- auth ----------
 
@@ -28,6 +29,14 @@ export async function login(_prev: string | null, form: FormData): Promise<strin
 export async function logout() {
   (await cookies()).delete(SESSION_COOKIE);
   redirect("/login");
+}
+
+export async function setTheme(theme: "light" | "dark") {
+  (await cookies()).set("pitaka_theme", theme === "dark" ? "dark" : "light", {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: "lax",
+  });
 }
 
 // ---------- transactions ----------
@@ -118,5 +127,22 @@ export async function addRule(form: FormData) {
 export async function deleteRule(form: FormData) {
   await requireAuth();
   await query(`delete from category_rules where id = $1`, [Number(form.get("id"))]);
+  revalidatePath("/settings");
+}
+
+// ---------- email senders ----------
+
+export async function addSource(_prev: string | null, form: FormData): Promise<string | null> {
+  await requireAuth();
+  const sender = normalizeSender(String(form.get("sender") ?? ""));
+  if (!sender) return "Use a domain (gcash.com) or an email (alerts@maya.ph).";
+  await query(`insert into email_sources (sender) values ($1) on conflict (sender) do nothing`, [sender]);
+  revalidatePath("/settings");
+  return null;
+}
+
+export async function deleteSource(form: FormData) {
+  await requireAuth();
+  await query(`delete from email_sources where id = $1`, [Number(form.get("id"))]);
   revalidatePath("/settings");
 }

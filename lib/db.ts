@@ -30,6 +30,11 @@ const SCHEMA = [
   // the app connects as the postgres role, which bypasses RLS.
   `alter table transactions enable row level security`,
   `alter table category_rules enable row level security`,
+  `do $$ begin
+     if exists (select 1 from pg_roles where rolname = 'anon') then
+       revoke all on transactions, category_rules from anon, authenticated;
+     end if;
+   end $$`,
   `create table if not exists ingest_runs (
     id              bigserial primary key,
     created_at      timestamptz not null default now(),
@@ -42,7 +47,18 @@ const SCHEMA = [
   `alter table ingest_runs enable row level security`,
   `do $$ begin
      if exists (select 1 from pg_roles where rolname = 'anon') then
-       revoke all on transactions, category_rules, ingest_runs from anon, authenticated;
+       revoke all on ingest_runs from anon, authenticated;
+     end if;
+   end $$`,
+  `create table if not exists email_sources (
+    id         bigserial primary key,
+    sender     text not null unique,
+    created_at timestamptz not null default now()
+  )`,
+  `alter table email_sources enable row level security`,
+  `do $$ begin
+     if exists (select 1 from pg_roles where rolname = 'anon') then
+       revoke all on email_sources from anon, authenticated;
      end if;
    end $$`,
 ];
@@ -50,7 +66,11 @@ const SCHEMA = [
 type Sql = ReturnType<typeof postgres>;
 
 // Reuse one client across hot reloads in dev (and across invocations of a warm function).
-const g = globalThis as unknown as { __pitakaSql?: Sql; __pitakaReady?: Promise<void> | null };
+const g = globalThis as unknown as {
+  __pitakaSql?: Sql;
+  __pitakaReady?: Promise<void> | null;
+  __pitakaSchemaN?: number;
+};
 
 function getClient() {
   if (!g.__pitakaSql) {
@@ -71,6 +91,10 @@ function getClient() {
 }
 
 function ensureSchema() {
+  if (g.__pitakaSchemaN !== SCHEMA.length) {
+    g.__pitakaReady = null;
+    g.__pitakaSchemaN = SCHEMA.length;
+  }
   if (!g.__pitakaReady) {
     g.__pitakaReady = (async () => {
       for (const stmt of SCHEMA) await getClient().unsafe(stmt);
@@ -107,6 +131,8 @@ export type Txn = {
 };
 
 export type Rule = { id: number; keyword: string; category: string };
+
+export type EmailSource = { id: number; sender: string };
 
 /** Apply the schema now and close the connection (used by `npm run db:migrate`). */
 export async function migrate() {

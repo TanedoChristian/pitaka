@@ -62,3 +62,21 @@ export function daysInMonth(m: string) {
   const [y, mo] = m.split("-").map(Number);
   return new Date(Date.UTC(y, mo, 0)).getUTCDate();
 }
+
+export function monthShort(m: string) {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString("en-PH", {
+    timeZone: "UTC",
+    month: "short",
+  });
+}
+
+export function lastMonths(end: string, n: number) {
+  return Array.from({ length: n }, (_, i) => shiftMonth(end, i - (n - 1)));
+}
+
+/** Bank name from "Maya Wallet · 63XXXX" style merchants. */
+export function shortMerchant(s: string) {
+  const part = s.replace(/\s+/g, " ").trim().split(" · ")[0] || s;
+  return part.length > 36 ? `${part.slice(0, 34)}…` : part;
+}

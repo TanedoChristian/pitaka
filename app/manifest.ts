@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Where did my money go?",
     start_url: "/",
     display: "standalone",
-    background_color: "#f6f5f2",
-    theme_color: "#f6f5f2",
+    background_color: "#f3f1ea",
+    theme_color: "#1a5c44",
     icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }],
   };
 }

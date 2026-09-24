@@ -3,11 +3,28 @@ import { safeEqual } from "@/lib/session";
 import { categorize } from "@/lib/categories";
 import { query } from "@/lib/db";
 import { parseBpiEmail } from "@/lib/parser";
-import { getRules } from "@/lib/queries";
+import { getRules, getSources } from "@/lib/queries";
+import { ALERT_SUBJECTS, gmailQuery } from "@/lib/sources";
 
 export const dynamic = "force-dynamic";
 
 type IncomingMessage = { id?: unknown; subject?: unknown; body?: unknown; date?: unknown };
+
+function authorized(req: Request) {
+  const secret = process.env.INGEST_SECRET;
+  const auth = req.headers.get("authorization") ?? "";
+  return !!secret && safeEqual(auth, `Bearer ${secret}`);
+}
+
+/** Apps Script asks for the current Gmail `from:` query (senders from Settings). */
+export async function GET(req: Request) {
+  if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const senders = (await getSources()).map((s) => s.sender);
+  return Response.json(
+    { query: gmailQuery(senders), senders, subjects: ALERT_SUBJECTS },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 /**
  * Webhook called by the Google Apps Script (apps-script/Code.gs).
@@ -15,11 +32,7 @@ type IncomingMessage = { id?: unknown; subject?: unknown; body?: unknown; date?:
  * used to de-duplicate, so re-sending the same email is harmless.
  */
 export async function POST(req: Request) {
-  const secret = process.env.INGEST_SECRET;
-  const auth = req.headers.get("authorization") ?? "";
-  if (!secret || !safeEqual(auth, `Bearer ${secret}`)) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const payload = await req.json().catch(() => null);
   const messages: IncomingMessage[] | null = Array.isArray(payload?.messages)

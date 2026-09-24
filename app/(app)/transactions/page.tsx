@@ -18,37 +18,98 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
   const out = txns.filter((t) => t.direction === "out").reduce((a, t) => a + t.amount, 0);
   const inn = txns.filter((t) => t.direction === "in").reduce((a, t) => a + t.amount, 0);
 
+  const keep = (next: { c?: string; q?: string }) => {
+    const p = new URLSearchParams({ m: month });
+    if (next.c) p.set("c", next.c);
+    if (next.q) p.set("q", next.q);
+    return `/transactions?${p}`;
+  };
+
   return (
     <>
       {review ? (
-        <div className="spread">
-          <h1>Needs review</h1>
-          <Link href="/transactions" className="btn">Done</Link>
-        </div>
+        <header className="page-head">
+          <div className="spread">
+            <div>
+              <p className="eyebrow">Inbox</p>
+              <h1>Needs review</h1>
+            </div>
+            <Link href="/transactions" className="btn">Done</Link>
+          </div>
+        </header>
       ) : (
-        <MonthNav month={month} basePath="/transactions" extra={{ c: category, q: search }} />
+        <header className="page-head">
+          <p className="eyebrow">Activity</p>
+          <MonthNav month={month} basePath="/transactions" extra={{ c: category, q: search }} />
+        </header>
       )}
 
+      <section className="activity-stats" aria-label="Totals">
+        <div className="activity-stat">
+          <div className="k">Transactions</div>
+          <div className="v">{txns.length}</div>
+        </div>
+        <div className="activity-stat">
+          <div className="k">Spent</div>
+          <div className="v">−{formatPeso(out)}</div>
+        </div>
+        <div className="activity-stat">
+          <div className="k">Received</div>
+          <div className="v in">+{formatPeso(inn)}</div>
+        </div>
+      </section>
+
       {!review && (
-        <form className="filters" action="/transactions">
+        <form className="activity-tools" action="/transactions">
           <input type="hidden" name="m" value={month} />
-          <select name="c" defaultValue={category ?? ""} aria-label="Category">
-            <option value="">All categories</option>
-            {ALL_CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <input type="search" name="q" placeholder="Search merchant or note" defaultValue={search} />
-          <button className="btn">Filter</button>
+          <label className="activity-search">
+            <span className="vh">Search</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input type="search" name="q" placeholder="Search merchant or note" defaultValue={search} />
+          </label>
+          <div className="activity-tools-row">
+            <select name="c" defaultValue={category ?? ""} aria-label="Category">
+              <option value="">All categories</option>
+              {ALL_CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            <button className="btn primary">Apply</button>
+          </div>
+          {(category || search) && (
+            <div className="chips">
+              {category && (
+                <Link className="chip-x" href={keep({ q: search })}>
+                  {category} <span aria-hidden="true">×</span>
+                </Link>
+              )}
+              {search && (
+                <Link className="chip-x" href={keep({ c: category })}>
+                  “{search}” <span aria-hidden="true">×</span>
+                </Link>
+              )}
+              <Link className="chip-x ghost" href={`/transactions?m=${month}`}>
+                Clear
+              </Link>
+            </div>
+          )}
         </form>
       )}
 
-      <section className="card">
-        <div className="card-head">
-          <h2>{txns.length} transaction{txns.length === 1 ? "" : "s"}</h2>
-          <span className="small muted">
-            −{formatPeso(out)} · <span className="in">+{formatPeso(inn)}</span>
-          </span>
+      <section className="card ledger">
+        <div className="ledger-head">
+          <h2>{review ? "Flagged" : "Ledger"}</h2>
+          <span className="muted small">{txns.length} this {review ? "list" : "month"}</span>
+        </div>
+        <div className="ledger-cols" aria-hidden="true">
+          <span />
+          <span>Merchant</span>
+          <span>Category</span>
+          <span>Time</span>
+          <span>Amount</span>
         </div>
         <TxnList txns={txns} empty={review ? "All caught up." : "No transactions match."} />
       </section>

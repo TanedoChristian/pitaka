@@ -36,10 +36,13 @@ Mobile-first; add it to your phone's home screen and it runs full-screen.
 3. Project Settings → **Script properties**:
    - `WEBHOOK_URL` = `https://<your-app>.vercel.app/api/ingest`
    - `INGEST_SECRET` = same value as in Vercel
-   - `GMAIL_QUERY` *(optional)* — defaults to `from:bpi.com.ph`. Check the sender
-     address on a real BPI alert and adjust if it differs.
-4. Select `install` → Run → allow access. It now checks Gmail every minute.
-5. Run `backfill` once to import the last 90 days.
+   - `GMAIL_QUERY` *(optional)* — overrides the sender list from Settings. Leave unset
+     so the script asks Pitaka each run (BPI by default; add GCash/Maya there).
+4. Select `install` → Run → allow access. It now checks Gmail every minute
+   (new mail only — last 24 hours).
+5. Select `backfill` → Run to import September. `preview` only logs matches.
+   If Gmail finds nothing the run fails with the searches it used. Change
+   `BACKFILL_YEAR` / `BACKFILL_MONTH` in `Code.gs` for another month.
 
 The Settings page in the app shows your exact webhook URL and when the last email arrived.
 

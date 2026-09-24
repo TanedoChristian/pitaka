@@ -12,10 +12,15 @@ export default async function EditTransaction({ params }: { params: Promise<{ id
 
   return (
     <>
-      <div className="spread">
-        <h1>Edit</h1>
-        <Link href="/transactions" className="btn">Cancel</Link>
-      </div>
+      <header className="page-head">
+        <div className="spread">
+          <div>
+            <p className="eyebrow">Transaction</p>
+            <h1>Edit</h1>
+          </div>
+          <Link href="/transactions" className="btn">Cancel</Link>
+        </div>
+      </header>
 
       {txn.needs_review && (
         <div className="banner">

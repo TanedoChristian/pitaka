@@ -15,7 +15,7 @@ function describeTarget() {
 console.log(`Migrating ${describeTarget()}`);
 
 migrate()
-  .then(() => console.log("✓ Schema applied: transactions, category_rules"))
+  .then(() => console.log("✓ Schema applied: transactions, category_rules, ingest_runs, email_sources"))
   .catch((err) => {
     console.error("✗ Migration failed:", err.message);
     process.exit(1);

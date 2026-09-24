@@ -84,6 +84,32 @@ Notes\t`;
   }
 });
 
+test("real sample: InstaPay to GCash", () => {
+  const p = parseBpiEmail({
+    subject: "Interbank Funds Transfer Confirmation",
+    body: `Dear CHRISTIAN,
+
+You have successfully submitted your InstaPay Funds Transfer request with the following details.
+
+Interbank Funds Transfer Transaction Details
+Confirmation Number	1626515680195
+Transaction Date and Time	Tuesday, Sep 22 2026; 03:23:05 PM (GMT +8)
+Transfer From	XXXX-XXXX-882 (SAVINGS ACCOUNT)
+Transfer To	DWXXXXX3JDNWHNTPY
+Bank Name	GCash/G-Xchange
+Transfer Amount	PHP 125.00
+Service Fee	PHP 0.00
+Total Amount	PHP 125.00
+Transfer Service	INSTAPAY
+Transaction Ref No.	907517
+Notes	`,
+  });
+  assert.equal(p?.amount, 125);
+  assert.equal(p?.direction, "out");
+  assert.equal(p?.merchant, "GCash/G-Xchange · DWXXXXX3JDNWHNTPY");
+  assert.equal(p?.occurredAt?.toISOString(), "2026-09-22T07:23:05.000Z");
+});
+
 test("table email: total includes the service fee", () => {
   const p = parseBpiEmail({
     subject: "Interbank Funds Transfer Confirmation",

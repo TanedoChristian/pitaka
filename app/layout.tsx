@@ -1,5 +1,17 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
+import { Fraunces, Geist } from "next/font/google";
 import "./globals.css";
+
+const sans = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const display = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-display",
+});
 
 export const metadata: Metadata = {
   title: "Pitaka",
@@ -14,14 +26,15 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f5f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#111110" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f1ea" },
+    { media: "(prefers-color-scheme: dark)", color: "#12110f" },
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const theme = (await cookies()).get("pitaka_theme")?.value === "dark" ? "dark" : "light";
   return (
-    <html lang="en">
+    <html lang="en" data-theme={theme} className={`${sans.variable} ${display.variable}`}>
       <body>{children}</body>
     </html>
   );
