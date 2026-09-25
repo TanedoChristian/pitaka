@@ -15,9 +15,14 @@ export function normalizeSender(raw: string) {
   return s;
 }
 
-export function gmailQuery(senders: string[]) {
+export function gmailQuery(senders: string[], keywords: string[] = []) {
   const list = senders.length ? senders : DEFAULT_SENDERS;
   const from = list.length === 1 ? `from:${list[0]}` : `from:(${list.join(" OR ")})`;
   const subjects = ALERT_SUBJECTS.map((s) => `subject:"${s}"`).join(" OR ");
-  return `(${from} OR ${subjects})`;
+  const extra = keywords
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k && !list.includes(k))
+    .map((k) => (normalizeSender(k) ? `from:${k}` : `"${k.replace(/"/g, "")}"`));
+  const parts = [from, subjects, ...extra];
+  return `(${parts.join(" OR ")})`;
 }

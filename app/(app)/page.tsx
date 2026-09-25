@@ -1,5 +1,5 @@
 import Link from "next/link";
-import CategoryBars from "@/components/CategoryBars";
+import CategoryPie from "@/components/CategoryPie";
 import DailyChart from "@/components/DailyChart";
 import MonthCompare from "@/components/MonthCompare";
 import MonthNav from "@/components/MonthNav";
@@ -8,11 +8,15 @@ import TxnList from "@/components/TxnList";
 import { daysInMonth, formatPeso, lastMonths, monthLabel, normalizeMonth, shiftMonth } from "@/lib/format";
 import {
   countNeedsReview,
+  ensureWallet,
+  getAccountSpend,
   getDailySpending,
+  getLargestTransactions,
   getMonthlyTrend,
   getSpendingByCategory,
   getSummary,
   getTopCounterparties,
+  getUnmatchedSpend,
   listTransactions,
 } from "@/lib/queries";
 
@@ -20,20 +24,37 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const month = normalizeMonth((await searchParams).m);
   const prevMonth = shiftMonth(month, -1);
   const months = lastMonths(month, 6);
+  await ensureWallet();
 
-  const [summary, prev, categories, daily, dailyPrev, trendRows, transfers, merchants, recent, review] =
-    await Promise.all([
-      getSummary(month),
-      getSummary(prevMonth),
-      getSpendingByCategory(month),
-      getDailySpending(month),
-      getDailySpending(prevMonth),
-      getMonthlyTrend(months[0], months[months.length - 1]),
-      getTopCounterparties(month, { category: "Transfers", limit: 6 }),
-      getTopCounterparties(month, { limit: 6 }),
-      listTransactions({ month, limit: 6 }),
-      countNeedsReview(),
-    ]);
+  const [
+    summary,
+    prev,
+    categories,
+    daily,
+    dailyPrev,
+    trendRows,
+    transfers,
+    merchants,
+    recent,
+    review,
+    accountSpend,
+    unmatched,
+    biggest,
+  ] = await Promise.all([
+    getSummary(month),
+    getSummary(prevMonth),
+    getSpendingByCategory(month),
+    getDailySpending(month),
+    getDailySpending(prevMonth),
+    getMonthlyTrend(months[0], months[months.length - 1]),
+    getTopCounterparties(month, { category: "Transfers", limit: 6 }),
+    getTopCounterparties(month, { limit: 6 }),
+    listTransactions({ month, limit: 6 }),
+    countNeedsReview(),
+    getAccountSpend(month),
+    getUnmatchedSpend(month),
+    getLargestTransactions(month, 5),
+  ]);
 
   const trend = months.map((m) => {
     const row = trendRows.find((r) => r.month === m);
@@ -51,6 +72,14 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         ? "Same as last month"
         : `${formatPeso(Math.abs(diff))} ${diff > 0 ? "more" : "less"} than last month`;
   const expenseCount = categories.reduce((a, c) => a + c.count, 0);
+  const cashSpend = accountSpend.find((a) => a.bank === "cash")?.spent ?? 0;
+  const linkedCardSpend = accountSpend.filter((a) => a.bank !== "cash").reduce((a, r) => a + r.spent, 0);
+  const otherSpend = unmatched.spent;
+  const cardSpend = linkedCardSpend + otherSpend;
+  const knownSpend = cashSpend + cardSpend;
+  const cashPct = knownSpend ? (cashSpend / knownSpend) * 100 : 0;
+  const cardPct = knownSpend ? (cardSpend / knownSpend) * 100 : 0;
+  const bigCut = biggest[0]?.amount ?? 0;
 
   return (
     <div className="overview">
@@ -88,7 +117,25 @@ export default async function Overview({ searchParams }: { searchParams: Promise
               {formatPeso(Math.abs(net))}
             </dd>
           </div>
+          <div>
+            <dt>Cash</dt>
+            <dd>{formatPeso(cashSpend)}</dd>
+          </div>
+          <div>
+            <dt>Cards</dt>
+            <dd>{formatPeso(cardSpend)}</dd>
+          </div>
         </dl>
+        {knownSpend > 0 && (
+          <div className="spend-split" aria-label="Cash versus cards">
+            {cashSpend > 0 && (
+              <span className="spend-split-cash" style={{ width: `${cashPct}%` }} title={`Cash ${formatPeso(cashSpend)}`} />
+            )}
+            {cardSpend > 0 && (
+              <span className="spend-split-cards" style={{ width: `${cardPct}%` }} title={`Cards ${formatPeso(cardSpend)}`} />
+            )}
+          </div>
+        )}
         <div className="hero-trend">
           <div className="card-head">
             <h2>Last 6 months</h2>
@@ -96,6 +143,16 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           </div>
           <MonthCompare rows={trend} compact />
         </div>
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <h2>Biggest transactions</h2>
+          <span className="muted small">
+            {bigCut ? `Top hit ${formatPeso(bigCut)}` : "This month"}
+          </span>
+        </div>
+        <TxnList txns={biggest} compact empty="No expenses this month yet." />
       </section>
 
       <section className="card">
@@ -120,7 +177,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
               {expenseCount} expense{expenseCount === 1 ? "" : "s"}
             </span>
           </div>
-          <CategoryBars rows={categories} month={month} />
+          <CategoryPie rows={categories} month={month} />
         </section>
 
         <section className="card">

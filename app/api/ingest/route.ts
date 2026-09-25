@@ -1,9 +1,10 @@
 import { revalidatePath } from "next/cache";
 import { safeEqual } from "@/lib/session";
+import { matchAccount } from "@/lib/banks";
 import { categorize } from "@/lib/categories";
 import { query } from "@/lib/db";
 import { parseBpiEmail } from "@/lib/parser";
-import { getRules, getSources } from "@/lib/queries";
+import { getAccounts, getRules, getSources } from "@/lib/queries";
 import { ALERT_SUBJECTS, gmailQuery } from "@/lib/sources";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +20,11 @@ function authorized(req: Request) {
 /** Apps Script asks for the current Gmail `from:` query (senders from Settings). */
 export async function GET(req: Request) {
   if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
-  const senders = (await getSources()).map((s) => s.sender);
+  const [sources, accounts] = await Promise.all([getSources(), getAccounts()]);
+  const senders = sources.map((s) => s.sender);
+  const keywords = accounts.map((a) => a.keyword).filter((k): k is string => !!k);
   return Response.json(
-    { query: gmailQuery(senders), senders, subjects: ALERT_SUBJECTS },
+    { query: gmailQuery(senders, keywords), senders, subjects: ALERT_SUBJECTS, keywords },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -40,7 +43,7 @@ export async function POST(req: Request) {
     : null;
   if (!messages) return Response.json({ error: "expected { messages: [...] }" }, { status: 400 });
 
-  const rules = await getRules();
+  const [rules, accounts] = await Promise.all([getRules(), getAccounts()]);
   let inserted = 0;
   let duplicates = 0;
   const skipped: { id: string; reason: string }[] = [];
@@ -64,12 +67,13 @@ export async function POST(req: Request) {
     const emailDate = typeof m.date === "string" && !Number.isNaN(Date.parse(m.date)) ? new Date(m.date) : new Date();
     const date = parsed.occurredAt ?? emailDate;
     const category = categorize(`${parsed.description} ${parsed.merchant ?? ""} ${body}`, direction, rules);
+    const matched = matchAccount(accounts, `${subject}\n${body}`, parsed.account);
 
     const rows = await query(
       `insert into transactions
          (occurred_at, amount, direction, description, merchant, category, account,
-          source, source_id, raw, needs_review)
-       values ($1, $2, $3, $4, $5, $6, $7, 'email', $8, $9, $10)
+          account_id, source, source_id, raw, needs_review)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, 'email', $9, $10, $11)
        on conflict (source_id) do nothing
        returning id`,
       [
@@ -80,6 +84,7 @@ export async function POST(req: Request) {
         parsed.merchant,
         category,
         parsed.account,
+        matched?.id ?? null,
         `gmail:${id}`,
         `${subject}\n\n${body}`,
         parsed.direction === null,

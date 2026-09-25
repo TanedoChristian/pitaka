@@ -29,3 +29,10 @@ test("gmailQuery builds from: with OR and known subjects", () => {
     '(from:(bpi.com.ph OR bpiexpressonline.com) OR subject:"Interbank Funds Transfer Confirmation")',
   );
 });
+
+test("gmailQuery adds card keywords that are not already senders", () => {
+  assert.equal(
+    gmailQuery(["bpi.com.ph"], ["bpi.com.ph", "eastwest alert", "maya.ph"]),
+    '(from:bpi.com.ph OR subject:"Interbank Funds Transfer Confirmation" OR "eastwest alert" OR from:maya.ph)',
+  );
+});

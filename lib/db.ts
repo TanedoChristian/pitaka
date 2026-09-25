@@ -61,6 +61,33 @@ const SCHEMA = [
        revoke all on email_sources from anon, authenticated;
      end if;
    end $$`,
+  `create table if not exists accounts (
+    id         bigserial primary key,
+    bank       text not null check (bank in ('bpi','eastwest','maya','gotyme','unionbank','cash')),
+    card_type  text not null check (card_type in ('credit','debit','cash')),
+    nickname   text,
+    last4      text,
+    keyword    text,
+    created_at timestamptz not null default now()
+  )`,
+  `create unique index if not exists accounts_keyword_idx
+     on accounts (lower(keyword))
+   where keyword is not null and length(trim(keyword)) > 0`,
+  `alter table accounts enable row level security`,
+  `do $$ begin
+     if exists (select 1 from pg_roles where rolname = 'anon') then
+       revoke all on accounts from anon, authenticated;
+     end if;
+   end $$`,
+  `alter table transactions add column if not exists account_id bigint`,
+  `do $$ begin
+     if not exists (select 1 from pg_constraint where conname = 'transactions_account_id_fkey') then
+       alter table transactions
+         add constraint transactions_account_id_fkey
+         foreign key (account_id) references accounts(id) on delete set null;
+     end if;
+   end $$`,
+  `create index if not exists transactions_account_id_idx on transactions (account_id)`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -125,6 +152,8 @@ export type Txn = {
   merchant: string | null;
   category: string;
   account: string | null;
+  account_id: number | null;
+  account_bank: string | null;
   source: string;
   raw: string | null;
   needs_review: boolean;
@@ -133,6 +162,15 @@ export type Txn = {
 export type Rule = { id: number; keyword: string; category: string };
 
 export type EmailSource = { id: number; sender: string };
+
+export type Account = {
+  id: number;
+  bank: string;
+  card_type: string;
+  nickname: string | null;
+  last4: string | null;
+  keyword: string | null;
+};
 
 /** Apply the schema now and close the connection (used by `npm run db:migrate`). */
 export async function migrate() {

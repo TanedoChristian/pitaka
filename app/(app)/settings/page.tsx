@@ -1,9 +1,10 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import { addRule, deleteRule, deleteSource, logout } from "@/app/actions";
 import SourceForm from "@/components/SourceForm";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
-import { getLastIngest, getRules, getSources } from "@/lib/queries";
+import { getAccounts, getLastIngest, getRules, getSources } from "@/lib/queries";
 import { gmailQuery } from "@/lib/sources";
 
 export default async function Settings() {
@@ -12,14 +13,16 @@ export default async function Settings() {
   const proto = h.get("x-forwarded-proto") ?? "https";
   const webhook = `${proto}://${host}/api/ingest`;
 
-  const [rules, sources, [totals], lastRun] = await Promise.all([
+  const [rules, sources, accounts, [totals], lastRun] = await Promise.all([
     getRules(),
     getSources(),
+    getAccounts(),
     query<{ at: Date | null; n: number }>(
       `select max(created_at) as at, count(*)::int as n from transactions where source = 'email'`,
     ),
     getLastIngest(),
   ]);
+  const keywords = accounts.map((a) => a.keyword).filter((k): k is string => !!k);
 
   return (
     <>
@@ -31,10 +34,9 @@ export default async function Settings() {
       <section className="card">
         <h2>Email from</h2>
         <p className="small muted" style={{ margin: 0 }}>
-          Gmail only pulls alerts from these senders. Add a domain or a full address —{" "}
-          <code>gcash.com</code>, <code>maya.ph</code>, <code>alerts@bpi.com.ph</code>. The script
-          picks this list up on the next sync. Parsing is still best for BPI until we add more
-          bank formats.
+          Extra Gmail senders, on top of the keywords on each card in{" "}
+          <Link href="/accounts">Accounts</Link>. Add a domain or a full address — <code>gcash.com</code>,{" "}
+          <code>maya.ph</code>. Parsing is still best for BPI until we add more bank formats.
         </p>
         <SourceForm />
         {sources.length > 0 && (
@@ -54,7 +56,7 @@ export default async function Settings() {
           </ul>
         )}
         <p className="small muted" style={{ margin: 0 }}>
-          Gmail query: <code>{gmailQuery(sources.map((s) => s.sender))}</code>
+          Gmail query: <code>{gmailQuery(sources.map((s) => s.sender), keywords)}</code>
         </p>
       </section>
 

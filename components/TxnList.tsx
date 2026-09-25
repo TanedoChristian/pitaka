@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { bankLabel } from "@/lib/banks";
 import type { Txn } from "@/lib/db";
 import { dayKey, formatDay, formatPeso, formatTime, shortMerchant } from "@/lib/format";
 
@@ -89,7 +90,8 @@ export default function TxnList({
                           {review && t.needs_review ? "Check this" : t.category}
                         </span>
                         <span>{formatTime(t.occurred_at)}</span>
-                        {t.account && <span>··{t.account}</span>}
+                        {t.account_bank && <span>{bankLabel(t.account_bank)}</span>}
+                        {!t.account_bank && t.account && <span>··{t.account}</span>}
                         {t.source === "manual" && <span>manual</span>}
                       </span>
                     </span>

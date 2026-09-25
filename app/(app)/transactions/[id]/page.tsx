@@ -2,12 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteTransaction, updateTransaction } from "@/app/actions";
 import TxnForm from "@/components/TxnForm";
-import { getTransaction } from "@/lib/queries";
+import { getAccounts, getTransaction } from "@/lib/queries";
 
 export default async function EditTransaction({ params }: { params: Promise<{ id: string }> }) {
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
-  const txn = await getTransaction(id);
+  const [txn, accounts] = await Promise.all([getTransaction(id), getAccounts()]);
   if (!txn) notFound();
 
   return (
@@ -30,7 +30,7 @@ export default async function EditTransaction({ params }: { params: Promise<{ id
       )}
 
       <section className="card">
-        <TxnForm action={updateTransaction} txn={txn} submitLabel="Save" />
+        <TxnForm action={updateTransaction} txn={txn} submitLabel="Save" accounts={accounts} />
       </section>
 
       {txn.raw && (

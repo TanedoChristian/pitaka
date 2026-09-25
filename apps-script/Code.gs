@@ -119,6 +119,11 @@ function clauses_() {
   const out = [];
   src.senders.forEach((s) => out.push('from:' + s));
   src.subjects.forEach((s) => out.push('subject:"' + s + '"'));
+  (src.keywords || []).forEach((k) => {
+    if (!k || src.senders.indexOf(k) >= 0) return;
+    if (/@|\.(com|ph|net|org)\b/i.test(k) && !/\s/.test(k)) out.push('from:' + k);
+    else out.push('"' + String(k).replace(/"/g, '') + '"');
+  });
   return out;
 }
 
@@ -134,7 +139,7 @@ function sources_() {
     });
     if (res.getResponseCode() === 200) {
       const data = JSON.parse(res.getContentText());
-      if (data && (data.senders || data.subjects || data.query)) {
+      if (data && (data.senders || data.subjects || data.keywords || data.query)) {
         p.setProperty('CACHED_SOURCES', res.getContentText());
         return normalizeSources_(data);
       }
@@ -146,14 +151,15 @@ function sources_() {
       return normalizeSources_(JSON.parse(cached));
     } catch (e) {}
   }
-  return { senders: DEFAULT_SENDERS, subjects: DEFAULT_SUBJECTS };
+  return { senders: DEFAULT_SENDERS, subjects: DEFAULT_SUBJECTS, keywords: [] };
 }
 
 function normalizeSources_(data) {
   const senders = Array.isArray(data.senders) && data.senders.length ? data.senders : DEFAULT_SENDERS;
   const subjects =
     Array.isArray(data.subjects) && data.subjects.length ? data.subjects : DEFAULT_SUBJECTS;
-  return { senders: senders, subjects: subjects };
+  const keywords = Array.isArray(data.keywords) ? data.keywords.filter(Boolean) : [];
+  return { senders: senders, subjects: subjects, keywords: keywords };
 }
 
 function search_(queries, keep) {
