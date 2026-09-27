@@ -9,8 +9,8 @@
  *   2. Run `install` once and grant access. It checks for new emails every minute.
  *   3. Run `backfill` to import September. That is what writes to Pitaka.
  *
- * Re-sending an email is harmless: the server de-duplicates by Gmail message id.
- */
+ * Re-sending an email is harmless: the server de-duplicates by Gmail message id/email id.
+ */ 
 
 const DEFAULT_SENDERS = ['bpi.com.ph', 'bpiexpressonline.com'];
 const DEFAULT_SUBJECTS = ['Interbank Funds Transfer Confirmation'];
