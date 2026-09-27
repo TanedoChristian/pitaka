@@ -1,26 +1,38 @@
+import Link from "next/link";
 import { deleteAccount } from "@/app/actions";
 import AccountForm from "@/components/AccountForm";
 import BankCard from "@/components/BankCard";
 import MonthNav from "@/components/MonthNav";
 import { accountLabel } from "@/lib/banks";
 import { formatPeso, normalizeMonth } from "@/lib/format";
-import { ensureWallet, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
+import { ensureWallet, getAccount, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
 
-export default async function AccountsPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
-  const month = normalizeMonth((await searchParams).m);
+export default async function AccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ m?: string; edit?: string }>;
+}) {
+  const sp = await searchParams;
+  const month = normalizeMonth(sp.m);
+  const editId = Number(sp.edit);
   await ensureWallet();
-  const [rows, unmatched] = await Promise.all([getAccountSpend(month), getUnmatchedSpend(month)]);
+  const [rows, unmatched, editing] = await Promise.all([
+    getAccountSpend(month),
+    getUnmatchedSpend(month),
+    Number.isInteger(editId) && editId > 0 ? getAccount(editId) : Promise.resolve(null),
+  ]);
   const cards = rows.filter((r) => r.bank !== "cash");
   const cash = rows.find((r) => r.bank === "cash");
   const cardSpend = cards.reduce((a, r) => a + r.spent, 0) + unmatched.spent;
   const cashSpend = cash?.spent ?? 0;
   const total = cashSpend + cardSpend;
+  const listHref = `/accounts?m=${month}`;
 
   return (
     <div className="accounts">
       <header className="page-head">
         <p className="eyebrow">Wallet</p>
-        <MonthNav month={month} basePath="/accounts" />
+        <MonthNav month={month} basePath="/accounts" extra={editing ? { edit: String(editing.id) } : {}} />
       </header>
 
       <section className="activity-stats" aria-label="Wallet totals">
@@ -47,14 +59,19 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         </div>
         <div className="wallet-grid">
           {cards.map((card) => (
-            <div key={card.id} className="wallet-item">
+            <div key={card.id} className={`wallet-item${editing?.id === card.id ? " is-editing" : ""}`}>
               <BankCard account={card} spent={card.spent} count={card.count} />
-              <form action={deleteAccount} className="wallet-actions">
-                <input type="hidden" name="id" value={card.id} />
-                <button className="btn danger" aria-label={`Remove ${accountLabel(card)}`}>
-                  Remove
-                </button>
-              </form>
+              <div className="wallet-actions">
+                <Link href={`/accounts?m=${month}&edit=${card.id}`} className="btn">
+                  Edit
+                </Link>
+                <form action={deleteAccount}>
+                  <input type="hidden" name="id" value={card.id} />
+                  <button className="btn danger" aria-label={`Remove ${accountLabel(card)}`}>
+                    Remove
+                  </button>
+                </form>
+              </div>
             </div>
           ))}
         </div>
@@ -67,10 +84,16 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
 
       <section className="card">
         <div className="card-head">
-          <h2>Add a card</h2>
-          <span className="muted small">BPI, EastWest, Maya, GoTyme, UnionBank</span>
+          <h2>{editing ? "Edit card" : "Add a card"}</h2>
+          {editing ? (
+            <Link href={listHref} className="small">
+              Cancel
+            </Link>
+          ) : (
+            <span className="muted small">BPI, EastWest, Maya, GoTyme, UnionBank</span>
+          )}
         </div>
-        <AccountForm />
+        <AccountForm key={editing?.id ?? "new"} account={editing ?? undefined} />
       </section>
     </div>
   );

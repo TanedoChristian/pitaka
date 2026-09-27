@@ -1,3 +1,4 @@
+import { getBank } from "./banks";
 import { query, type Account, type EmailSource, type Rule, type Txn } from "./db";
 import { DEFAULT_SENDERS } from "./sources";
 
@@ -153,6 +154,11 @@ export async function ensureWallet() {
         set account_id = (select id from accounts where bank = 'cash' order by id limit 1)
       where account_id is null and source = 'manual'`,
   );
+  await attachEmailsToCards();
+}
+
+/** Stamp unmatched email rows onto the card whose keyword/From they belong to. */
+export async function attachEmailsToCards() {
   await query(
     `update transactions t
         set account_id = a.id
@@ -161,6 +167,45 @@ export async function ensureWallet() {
         and a.last4 is not null
         and t.account = a.last4`,
   );
+  await query(
+    `update transactions t
+        set account_id = a.id
+       from accounts a
+      where t.account_id is null
+        and t.source = 'email'
+        and a.bank <> 'cash'
+        and a.keyword is not null
+        and length(trim(a.keyword)) > 0
+        and (
+          t.raw ilike '%' || a.keyword || '%'
+          or t.description ilike '%' || a.keyword || '%'
+        )`,
+  );
+
+  const cards = await query<Account>(
+    `select id::int as id, bank, card_type, nickname, last4, keyword
+       from accounts
+      where bank <> 'cash' and keyword is not null`,
+  );
+  const counts = new Map<string, number>();
+  for (const c of cards) counts.set(c.bank, (counts.get(c.bank) ?? 0) + 1);
+
+  for (const card of cards) {
+    if ((counts.get(card.bank) ?? 0) !== 1) continue;
+    const bank = getBank(card.bank);
+    if (!bank) continue;
+    const hints = [bank.defaultKeyword, ...bank.extraSenders, ...bank.headerHints];
+    if (!hints.length) continue;
+    const like = hints.map((_, i) => `t.raw ilike $${i + 2} or t.description ilike $${i + 2}`).join(" or ");
+    await query(
+      `update transactions t
+          set account_id = $1
+        where t.account_id is null
+          and t.source = 'email'
+          and (${like})`,
+      [card.id, ...hints.map((h) => `%${h}%`)],
+    );
+  }
 }
 
 export async function getAccounts() {
@@ -170,6 +215,17 @@ export async function getAccounts() {
        from accounts
       order by bank = 'cash' desc, created_at, id`,
   );
+}
+
+export async function getAccount(id: number) {
+  await ensureWallet();
+  const [row] = await query<Account>(
+    `select id::int as id, bank, card_type, nickname, last4, keyword
+       from accounts
+      where id = $1 and bank <> 'cash'`,
+    [id],
+  );
+  return row ?? null;
 }
 
 export type AccountSpend = Account & { spent: number; received: number; count: number };

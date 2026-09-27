@@ -4,12 +4,12 @@ import { matchAccount } from "@/lib/banks";
 import { categorize } from "@/lib/categories";
 import { query } from "@/lib/db";
 import { parseBpiEmail } from "@/lib/parser";
-import { getAccounts, getRules, getSources } from "@/lib/queries";
+import { attachEmailsToCards, getAccounts, getRules, getSources } from "@/lib/queries";
 import { ALERT_SUBJECTS, gmailQuery } from "@/lib/sources";
 
 export const dynamic = "force-dynamic";
 
-type IncomingMessage = { id?: unknown; subject?: unknown; body?: unknown; date?: unknown };
+type IncomingMessage = { id?: unknown; from?: unknown; subject?: unknown; body?: unknown; date?: unknown };
 
 function authorized(req: Request) {
   const secret = process.env.INGEST_SECRET;
@@ -50,6 +50,7 @@ export async function POST(req: Request) {
 
   for (const m of messages) {
     const id = typeof m.id === "string" ? m.id : "";
+    const from = typeof m.from === "string" ? m.from : "";
     const subject = typeof m.subject === "string" ? m.subject : "";
     const body = typeof m.body === "string" ? m.body.slice(0, 20_000) : "";
     if (!id) {
@@ -67,15 +68,17 @@ export async function POST(req: Request) {
     const emailDate = typeof m.date === "string" && !Number.isNaN(Date.parse(m.date)) ? new Date(m.date) : new Date();
     const date = parsed.occurredAt ?? emailDate;
     const category = categorize(`${parsed.description} ${parsed.merchant ?? ""} ${body}`, direction, rules);
-    const matched = matchAccount(accounts, `${subject}\n${body}`, parsed.account);
+    const matched = matchAccount(accounts, { from, subject, body, last4: parsed.account });
+    const raw = `${from ? `From: ${from}\n` : ""}${subject}\n\n${body}`;
 
-    const rows = await query(
+    const rows = await query<{ id: number; inserted: boolean }>(
       `insert into transactions
          (occurred_at, amount, direction, description, merchant, category, account,
           account_id, source, source_id, raw, needs_review)
        values ($1, $2, $3, $4, $5, $6, $7, $8, 'email', $9, $10, $11)
-       on conflict (source_id) do nothing
-       returning id`,
+       on conflict (source_id) do update
+         set account_id = coalesce(transactions.account_id, excluded.account_id)
+       returning id, (xmax = 0) as inserted`,
       [
         date,
         parsed.amount,
@@ -86,13 +89,15 @@ export async function POST(req: Request) {
         parsed.account,
         matched?.id ?? null,
         `gmail:${id}`,
-        `${subject}\n\n${body}`,
+        raw,
         parsed.direction === null,
       ],
     );
-    if (rows.length) inserted++;
+    if (rows[0]?.inserted) inserted++;
     else duplicates++;
   }
+
+  await attachEmailsToCards();
 
   await query(
     `insert into ingest_runs (received, inserted, duplicates, skipped, skipped_sample)
@@ -100,6 +105,6 @@ export async function POST(req: Request) {
     [messages.length, inserted, duplicates, skipped.length, JSON.stringify(skipped.slice(0, 20))],
   );
 
-  if (inserted) revalidatePath("/", "layout");
+  if (inserted || duplicates) revalidatePath("/", "layout");
   return Response.json({ inserted, duplicates, skipped: skipped.length, skippedSample: skipped.slice(0, 8) });
 }

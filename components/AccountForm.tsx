@@ -1,22 +1,29 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import { addAccount } from "@/app/actions";
+import { useActionState, useId, useMemo, useState } from "react";
+import { addAccount, updateAccount } from "@/app/actions";
 import BankCard from "@/components/BankCard";
 import { BANKS, isBankId } from "@/lib/banks";
+import type { Account } from "@/lib/db";
 
-export default function AccountForm() {
-  const [error, action, pending] = useActionState(addAccount, null);
-  const [bank, setBank] = useState(BANKS[0].id);
-  const [cardType, setCardType] = useState<"debit" | "credit">("debit");
-  const [last4, setLast4] = useState("");
-  const [nickname, setNickname] = useState("");
-  const [keyword, setKeyword] = useState(BANKS[0].defaultKeyword);
+export default function AccountForm({ account }: { account?: Account }) {
+  const uid = useId();
+  const [error, action, pending] = useActionState(account ? updateAccount : addAccount, null);
+  const initialBank = account && isBankId(account.bank) ? account.bank : BANKS[0].id;
+  const [bank, setBank] = useState(initialBank);
+  const [cardType, setCardType] = useState<"debit" | "credit">(account?.card_type === "credit" ? "credit" : "debit");
+  const [last4, setLast4] = useState(account?.last4 ?? "");
+  const [nickname, setNickname] = useState(account?.nickname ?? "");
+  const [keyword, setKeyword] = useState(account?.keyword ?? BANKS[0].defaultKeyword);
 
   const info = useMemo(() => BANKS.find((b) => b.id === bank) ?? BANKS[0], [bank]);
+  const debitId = `${uid}-debit`;
+  const creditId = `${uid}-credit`;
+  const hintId = `${uid}-hint`;
 
   return (
     <form action={action} className="account-form">
+      {account && <input type="hidden" name="id" value={account.id} />}
       <BankCard
         account={{
           bank,
@@ -53,22 +60,22 @@ export default function AccountForm() {
         <div className="segmented" role="radiogroup" aria-label="Card type">
           <input
             type="radio"
-            id="type-debit"
+            id={debitId}
             name="card_type"
             value="debit"
             checked={cardType === "debit"}
             onChange={() => setCardType("debit")}
           />
-          <label htmlFor="type-debit">Debit</label>
+          <label htmlFor={debitId}>Debit</label>
           <input
             type="radio"
-            id="type-credit"
+            id={creditId}
             name="card_type"
             value="credit"
             checked={cardType === "credit"}
             onChange={() => setCardType("credit")}
           />
-          <label htmlFor="type-credit">Credit</label>
+          <label htmlFor={creditId}>Credit</label>
         </div>
 
         <div className="grid-2">
@@ -106,16 +113,16 @@ export default function AccountForm() {
             onChange={(e) => setKeyword(e.target.value)}
             placeholder={info.defaultKeyword}
             autoComplete="off"
-            aria-describedby="keyword-hint"
+            aria-describedby={hintId}
           />
         </label>
-        <p id="keyword-hint" className="small muted" style={{ margin: 0 }}>
+        <p id={hintId} className="small muted" style={{ margin: 0 }}>
           Gmail uses this to pull alerts for this card — a sender like{" "}
           <code>{info.defaultKeyword}</code>, or a phrase from the subject. {info.hint}.
         </p>
 
         <button className="btn primary block" disabled={pending}>
-          {pending ? "Adding…" : "Add card"}
+          {pending ? (account ? "Saving…" : "Adding…") : account ? "Save card" : "Add card"}
         </button>
         {error && (
           <p className="error" role="alert">

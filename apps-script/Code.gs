@@ -189,6 +189,7 @@ function pad_(n) {
 function toPayload_(m) {
   return {
     id: m.getId(),
+    from: m.getFrom(),
     subject: m.getSubject(),
     body: textOf_(m),
     date: m.getDate().toISOString(),

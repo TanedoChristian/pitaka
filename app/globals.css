@@ -554,7 +554,8 @@ ol.steps a { color: var(--accent); font-weight: 600; }
   grid-template-columns: minmax(0, 1fr);
 }
 .wallet-item { display: grid; gap: 10px; }
-.wallet-actions { display: flex; justify-content: flex-end; }
+.wallet-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.wallet-item.is-editing .pay-face { outline: 2px solid var(--accent); outline-offset: 3px; }
 .account-form {
   display: grid;
   gap: 18px;

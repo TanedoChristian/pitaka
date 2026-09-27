@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BANKS, isBankId, matchAccount, normalizeKeyword, paymentChoices } from "./banks";
+import { BANKS, isBankId, matchAccount, normalizeKeyword, paymentChoices, senderMatchesKeyword } from "./banks";
 
 test("catalog covers the Philippine banks we support", () => {
   assert.deepEqual(
@@ -32,13 +32,41 @@ test("paymentChoices always offers Cash plus every bank not yet added", () => {
   );
 });
 
-test("matchAccount prefers last 4, then the longest keyword hit", () => {
+test("senderMatchesKeyword matches the From domain saved on the card", () => {
+  assert.equal(senderMatchesKeyword("BPI Alerts <noreply@bpi.com.ph>", "bpi.com.ph"), true);
+  assert.equal(senderMatchesKeyword("alerts@bpiexpressonline.com", "bpi.com.ph"), false);
+  assert.equal(senderMatchesKeyword("Maya <alerts@maya.ph>", "maya.ph"), true);
+  assert.equal(senderMatchesKeyword("BPI Alerts <noreply@bpi.com.ph>", "maya.ph"), false);
+});
+
+test("matchAccount uses From + card keyword, then last 4, then BPI subject hints", () => {
   const accounts = [
-    { keyword: "bpi.com.ph", last4: "8821" },
-    { keyword: "maya.ph", last4: "4400" },
-    { keyword: "bpi", last4: null },
+    { bank: "bpi", keyword: "bpi.com.ph", last4: "8821" },
+    { bank: "maya", keyword: "maya.ph", last4: "4400" },
+    { bank: "cash", keyword: null, last4: null },
   ];
-  assert.equal(matchAccount(accounts, "purchase at Jollibee", "4400"), accounts[1]);
-  assert.equal(matchAccount(accounts, "From: noreply@bpi.com.ph — paid PHP 100", null), accounts[0]);
-  assert.equal(matchAccount(accounts, "random promo email", null), null);
+  assert.equal(
+    matchAccount(accounts, { from: "noreply@bpi.com.ph", subject: "Purchase alert", body: "paid at Jollibee" }),
+    accounts[0],
+  );
+  assert.equal(
+    matchAccount(accounts, { from: "BPI <alerts@bpiexpressonline.com>", subject: "Purchase alert", body: "" }),
+    accounts[0],
+  );
+  assert.equal(
+    matchAccount(accounts, {
+      from: "",
+      subject: "Interbank Funds Transfer Confirmation",
+      body: "Transfer To Maya Wallet PHP 100.00",
+    }),
+    accounts[0],
+  );
+  assert.equal(
+    matchAccount(accounts, { from: "", subject: "Purchase alert", body: "card ending in 4400" , last4: "4400" }),
+    accounts[1],
+  );
+  assert.equal(
+    matchAccount(accounts, { from: "promos@shop.ph", subject: "Sale", body: "nothing relevant" }),
+    null,
+  );
 });

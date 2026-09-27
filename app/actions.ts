@@ -7,6 +7,7 @@ import { checkPassword, requireAuth, SESSION_COOKIE, SESSION_MAX_AGE, sessionTok
 import { getBank, isBankId, normalizeKeyword } from "@/lib/banks";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
+import { attachEmailsToCards } from "@/lib/queries";
 import { normalizeSender } from "@/lib/sources";
 
 // ---------- auth ----------
@@ -179,21 +180,39 @@ export async function deleteSource(form: FormData) {
 
 // ---------- cards / accounts ----------
 
-export async function addAccount(_prev: string | null, form: FormData): Promise<string | null> {
-  await requireAuth();
+function readCardForm(form: FormData) {
   const bank = String(form.get("bank") ?? "");
-  if (!isBankId(bank)) return "Pick a bank.";
-  const cardType = form.get("card_type") === "credit" ? "credit" : "debit";
+  if (!isBankId(bank)) return { ok: false as const, error: "Pick a bank." };
   const keyword = normalizeKeyword(String(form.get("keyword") ?? ""));
-  if (!keyword) return "Add the keyword Gmail should use to find this card’s emails.";
+  if (!keyword) return { ok: false as const, error: "Add the keyword Gmail should use to find this card’s emails." };
   const digits = String(form.get("last4") ?? "").replace(/\D/g, "");
   const last4 = digits ? digits.slice(-4) : null;
-  if (last4 && last4.length !== 4) return "Last 4 should be four digits.";
-  const nickname = String(form.get("nickname") ?? "").trim().slice(0, 40) || null;
+  if (last4 && last4.length !== 4) return { ok: false as const, error: "Last 4 should be four digits." };
+  return {
+    ok: true as const,
+    bank,
+    cardType: form.get("card_type") === "credit" ? "credit" : "debit",
+    keyword,
+    last4,
+    nickname: String(form.get("nickname") ?? "").trim().slice(0, 40) || null,
+  };
+}
+
+async function rememberSender(keyword: string) {
+  const sender = normalizeSender(keyword);
+  if (sender) {
+    await query(`insert into email_sources (sender) values ($1) on conflict (sender) do nothing`, [sender]);
+  }
+}
+
+export async function addAccount(_prev: string | null, form: FormData): Promise<string | null> {
+  await requireAuth();
+  const t = readCardForm(form);
+  if (!t.ok) return t.error;
 
   const [exists] = await query<{ n: number }>(
     `select count(*)::int as n from accounts where lower(keyword) = $1`,
-    [keyword],
+    [t.keyword],
   );
   if (exists.n) return "That email keyword is already on another card.";
 
@@ -201,30 +220,43 @@ export async function addAccount(_prev: string | null, form: FormData): Promise<
     `insert into accounts (bank, card_type, nickname, last4, keyword)
      values ($1, $2, $3, $4, $5)
      returning id::int as id`,
-    [bank, cardType, nickname, last4, keyword],
+    [t.bank, t.cardType, t.nickname, t.last4, t.keyword],
   );
 
-  const sender = normalizeSender(keyword);
-  if (sender) {
-    await query(`insert into email_sources (sender) values ($1) on conflict (sender) do nothing`, [sender]);
-  }
-
-  if (row) {
-    await query(
-      `update transactions t
-          set account_id = $1
-        where t.account_id is null
-          and (
-            ($2::text is not null and t.account = $2)
-            or (t.raw ilike '%' || $3 || '%')
-            or (t.description ilike '%' || $3 || '%')
-          )`,
-      [row.id, last4, keyword],
-    );
-  }
+  await rememberSender(t.keyword);
+  if (row) await attachEmailsToCards();
 
   revalidatePath("/", "layout");
   return null;
+}
+
+export async function updateAccount(_prev: string | null, form: FormData): Promise<string | null> {
+  await requireAuth();
+  const id = Number(form.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return "Card not found.";
+  const t = readCardForm(form);
+  if (!t.ok) return t.error;
+
+  const [exists] = await query<{ n: number }>(
+    `select count(*)::int as n from accounts where lower(keyword) = $1 and id <> $2`,
+    [t.keyword, id],
+  );
+  if (exists.n) return "That email keyword is already on another card.";
+
+  const rows = await query(
+    `update accounts
+        set bank = $2, card_type = $3, nickname = $4, last4 = $5, keyword = $6
+      where id = $1 and bank <> 'cash'
+      returning id`,
+    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword],
+  );
+  if (!rows.length) return "Card not found.";
+
+  await rememberSender(t.keyword);
+  await attachEmailsToCards();
+
+  revalidatePath("/", "layout");
+  redirect("/accounts");
 }
 
 export async function deleteAccount(form: FormData) {
