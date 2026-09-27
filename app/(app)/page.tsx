@@ -8,6 +8,7 @@ import TxnList from "@/components/TxnList";
 import { daysInMonth, formatPeso, lastMonths, monthLabel, normalizeMonth, shiftMonth } from "@/lib/format";
 import {
   countNeedsReview,
+  ensureWallet,
   getAccountSpend,
   getDailySpending,
   getLargestTransactions,
@@ -23,6 +24,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const month = normalizeMonth((await searchParams).m);
   const prevMonth = shiftMonth(month, -1);
   const months = lastMonths(month, 6);
+  await ensureWallet();
 
   const [
     summary,

@@ -820,4 +820,3 @@ ol.steps a { color: var(--accent); font-weight: 600; }
 .skel-card { min-height: 160px; border-color: transparent; }
 @keyframes skel-pulse { 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
-.btn:disabled { opacity: .6; cursor: progress; }
