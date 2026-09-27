@@ -143,20 +143,6 @@ export async function getLastIngest() {
   return row ?? null;
 }
 
-export async function ensureWallet() {
-  await query(
-    `insert into accounts (bank, card_type, nickname)
-     select 'cash', 'cash', 'Cash'
-      where not exists (select 1 from accounts where bank = 'cash')`,
-  );
-  await query(
-    `update transactions
-        set account_id = (select id from accounts where bank = 'cash' order by id limit 1)
-      where account_id is null and source = 'manual'`,
-  );
-  await attachEmailsToCards();
-}
-
 /** Stamp unmatched email rows onto the card whose keyword/From they belong to. */
 export async function attachEmailsToCards() {
   await query(
@@ -209,7 +195,6 @@ export async function attachEmailsToCards() {
 }
 
 export async function getAccounts() {
-  await ensureWallet();
   return query<Account>(
     `select id::int as id, bank, card_type, nickname, last4, keyword
        from accounts
@@ -218,7 +203,6 @@ export async function getAccounts() {
 }
 
 export async function getAccount(id: number) {
-  await ensureWallet();
   const [row] = await query<Account>(
     `select id::int as id, bank, card_type, nickname, last4, keyword
        from accounts

@@ -88,6 +88,13 @@ const SCHEMA = [
      end if;
    end $$`,
   `create index if not exists transactions_account_id_idx on transactions (account_id)`,
+  // Every install has one Cash wallet; manual rows without an account belong to it.
+  `insert into accounts (bank, card_type, nickname)
+   select 'cash', 'cash', 'Cash'
+    where not exists (select 1 from accounts where bank = 'cash')`,
+  `update transactions
+      set account_id = (select id from accounts where bank = 'cash' order by id limit 1)
+    where account_id is null and source = 'manual'`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -108,8 +115,10 @@ function getClient() {
       ssl: local ? false : "require",
       // Supabase's transaction pooler (port 6543) doesn't support prepared statements.
       prepare: false,
-      max: 5,
-      idle_timeout: 20,
+      max: 10, // the overview page runs ~13 queries in parallel
+      // Opening a connection to the remote pooler costs ~3s, so keep idle ones around
+      // instead of reconnecting after every short pause between clicks.
+      idle_timeout: 600,
       connect_timeout: 10,
       onnotice: () => {}, // silence "already exists, skipping" from the idempotent schema
     });
@@ -124,7 +133,8 @@ function ensureSchema() {
   }
   if (!g.__pitakaReady) {
     g.__pitakaReady = (async () => {
-      for (const stmt of SCHEMA) await getClient().unsafe(stmt);
+      // One round trip: the database is remote, so ~20 sequential statements cost seconds.
+      await getClient().unsafe(SCHEMA.join(";\n"));
     })().catch((err) => {
       g.__pitakaReady = null;
       throw err;

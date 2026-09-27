@@ -812,3 +812,12 @@ ol.steps a { color: var(--accent); font-weight: 600; }
   .txn-meta .chip:not(.warn) { display: none; }
   .txn-meta span:nth-child(2) { display: none; }
 }
+
+/* ---------- loading skeleton ---------- */
+.loading { display: grid; gap: 16px; }
+.skel { background: var(--surface-2); border-radius: 12px; animation: skel-pulse 1.2s ease-in-out infinite; }
+.skel-title { height: 32px; width: 40%; }
+.skel-card { min-height: 160px; border-color: transparent; }
+@keyframes skel-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+.btn:disabled { opacity: .6; cursor: progress; }

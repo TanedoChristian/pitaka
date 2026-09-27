@@ -2,6 +2,7 @@ import { accountLabel, paymentChoices } from "@/lib/banks";
 import type { Account, Txn } from "@/lib/db";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { toLocalInput } from "@/lib/format";
+import SubmitButton from "@/components/SubmitButton";
 
 /** Shared add/edit form. Rendered on the server; posts to a server action. */
 export default function TxnForm({
@@ -101,7 +102,9 @@ export default function TxnForm({
         </label>
       )}
 
-      <button className="btn primary block">{submitLabel}</button>
+      <SubmitButton className="btn primary block" pendingLabel="Saving…">
+        {submitLabel}
+      </SubmitButton>
     </form>
   );
 }
