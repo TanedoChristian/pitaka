@@ -70,9 +70,10 @@ const SCHEMA = [
     keyword    text,
     created_at timestamptz not null default now()
   )`,
-  `create unique index if not exists accounts_keyword_idx
-     on accounts (lower(keyword))
-   where keyword is not null and length(trim(keyword)) > 0`,
+  // Shared sender keywords are allowed (BPI debit + credit both use bpi.com.ph).
+  // This slot used to CREATE UNIQUE INDEX, which throws 23505 on duplicates
+  // and never reached the DROP below. Drop here so schema apply can finish.
+  `drop index if exists accounts_keyword_idx`,
   `alter table accounts enable row level security`,
   `do $$ begin
      if exists (select 1 from pg_roles where rolname = 'anon') then
