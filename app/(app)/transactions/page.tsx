@@ -27,8 +27,9 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
     accountId: account?.id,
     review,
   });
-  const out = txns.filter((t) => t.direction === "out").reduce((a, t) => a + t.amount, 0);
+  const out = txns.filter((t) => t.direction === "out" && !t.self_transfer).reduce((a, t) => a + t.amount, 0);
   const inn = txns.filter((t) => t.direction === "in").reduce((a, t) => a + t.amount, 0);
+  const moved = txns.filter((t) => t.self_transfer).reduce((a, t) => a + t.amount, 0);
 
   const keep = (next: { c?: string; q?: string; a?: string }) => {
     const p = new URLSearchParams({ m: month });
@@ -74,6 +75,12 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
           <div className="k">Received</div>
           <div className="v in">+{formatPeso(inn)}</div>
         </div>
+        {moved > 0 && (
+          <div className="activity-stat">
+            <div className="k">To myself</div>
+            <div className="v muted">−{formatPeso(moved)}</div>
+          </div>
+        )}
       </section>
 
       {!review && (

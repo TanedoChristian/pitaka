@@ -16,7 +16,7 @@ import {
   statementBill,
 } from "@/lib/billing";
 import { dayKey, formatShortDate } from "@/lib/format";
-import { getAccount, getAccounts, listAccountTransactions } from "@/lib/queries";
+import { getAccount, getAccounts, getPaymentCompletions, listAccountTransactions } from "@/lib/queries";
 
 export default async function AccountPage({
   params,
@@ -70,6 +70,9 @@ export default async function AccountPage({
           })),
         })
       : null;
+
+  const completions = cycle ? await getPaymentCompletions(account.id, cycle.statement) : [];
+  const completedDues = completions.map((c) => c.due_date);
 
   const cycleTxns = cycle ? txns.filter((t) => {
     const d = dayKey(t.occurred_at);
@@ -150,6 +153,7 @@ export default async function AccountPage({
             savedPayDays={billing.payDays}
             savedDueDays={billing.dueDays}
             payInFull={bill.planBalance}
+            completedDues={completedDues}
           />
         </>
       )}

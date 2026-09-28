@@ -123,6 +123,12 @@ export default async function Overview({ searchParams }: { searchParams: Promise
             <dt>Cards</dt>
             <dd>{formatPeso(cardSpend)}</dd>
           </div>
+          {summary.moved > 0 && (
+            <div>
+              <dt>To myself</dt>
+              <dd className="muted">{formatPeso(summary.moved)}</dd>
+            </div>
+          )}
         </dl>
         {knownSpend > 0 && (
           <div className="spend-split" aria-label="Cash versus cards">

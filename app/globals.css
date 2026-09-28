@@ -412,16 +412,32 @@ h2 { font-size: 0.95rem; font-weight: 650; }
 .bill-terms li {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   padding: 12px 14px;
   border-top: 1px solid var(--border);
 }
 .bill-terms li:first-child { border-top: 0; }
+.bill-terms li.done {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.bill-terms li.done strong { text-decoration: line-through; opacity: 0.75; }
 .bill-term-n {
   display: block;
   font-weight: 700;
   font-size: 13px;
+}
+.bill-term-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.bill-term-actions .btn.small {
+  padding: 6px 10px;
+  font-size: 12px;
+  min-height: 0;
 }
 .pay-days { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
 .pay-days legend { font-weight: 600; }
@@ -503,6 +519,7 @@ h2 { font-size: 0.95rem; font-weight: 650; }
 .txn-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .txn-cat, .txn-when { display: none; color: var(--text-2); font-size: 13px; }
 .txn-amt { font-weight: 700; white-space: nowrap; letter-spacing: -0.02em; justify-self: end; }
+.txn-amt.muted { font-weight: 600; color: var(--muted); }
 .chip {
   display: inline-block; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 999px;
@@ -560,6 +577,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: none; background: var(--accent); opacity: 0.92; }
 .btn.danger { color: var(--bad); }
+.btn.ghost { background: transparent; color: var(--text-2); }
 .btn.block { width: 100%; }
 .btn:disabled, .btn[aria-busy="true"] {
   opacity: 0.55;

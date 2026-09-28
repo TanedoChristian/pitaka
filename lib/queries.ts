@@ -10,16 +10,19 @@ const monthDay = (month: string) => `${month}-01`;
 const TXN_COLS = `t.id::int as id, t.occurred_at, t.amount::float8 as amount, t.direction, t.description,
   t.merchant, t.category, t.account, t.account_id::int as account_id, a.bank as account_bank,
   a.nickname as account_nickname, a.card_type as account_card_type, a.last4 as account_last4,
-  t.source, t.raw, t.needs_review, t.plan_months::int as plan_months`;
+  t.source, t.raw, t.needs_review, t.plan_months::int as plan_months, t.self_transfer`;
 const TXN_FROM = `transactions t left join accounts a on a.id = t.account_id`;
 const ACCOUNT_COLS = `id::int as id, bank, card_type, nickname, last4, keyword,
   statement_day::int as statement_day, due_days::int as due_days, plan_months::int as plan_months, pay_days`;
+/** Real spending — wallet top-ups marked "to myself" are excluded. */
+const REAL_OUT = `t.direction = 'out' and not t.self_transfer`;
 
 export async function getSummary(month: string) {
-  const [row] = await query<{ spent: number; received: number; count: number }>(
-    `select coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
+  const [row] = await query<{ spent: number; received: number; moved: number; count: number }>(
+    `select coalesce(sum(t.amount) filter (where ${REAL_OUT}), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8  as received,
-            count(*)::int as count
+            coalesce(sum(t.amount) filter (where t.direction = 'out' and t.self_transfer), 0)::float8 as moved,
+            count(*) filter (where ${REAL_OUT} or t.direction = 'in')::int as count
        from transactions t where ${IN_MONTH("t", 1)}`,
     [monthDay(month)],
   );
@@ -30,7 +33,7 @@ export function getSpendingByCategory(month: string) {
   return query<{ category: string; total: number; count: number }>(
     `select t.category, sum(t.amount)::float8 as total, count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${IN_MONTH("t", 1)}
+      where ${REAL_OUT} and ${IN_MONTH("t", 1)}
       group by t.category order by total desc`,
     [monthDay(month)],
   );
@@ -41,7 +44,7 @@ export function getDailySpending(month: string) {
     `select extract(day from t.occurred_at at time zone 'Asia/Manila')::int as day,
             sum(t.amount)::float8 as total
        from transactions t
-      where t.direction = 'out' and ${IN_MONTH("t", 1)}
+      where ${REAL_OUT} and ${IN_MONTH("t", 1)}
       group by 1 order by 1`,
     [monthDay(month)],
   );
@@ -115,7 +118,7 @@ export async function getSources() {
 export function getMonthlyTrend(from: string, to: string) {
   return query<{ month: string; spent: number; received: number }>(
     `select ${MONTH_LABEL} as month,
-            coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
+            coalesce(sum(t.amount) filter (where ${REAL_OUT}), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8 as received
        from transactions t
       where t.occurred_at >= $1::timestamp at time zone 'Asia/Manila'
@@ -128,13 +131,15 @@ export function getMonthlyTrend(from: string, to: string) {
 export function getTopCounterparties(month: string, opts: { category?: string; limit?: number } = {}) {
   const params: unknown[] = [monthDay(month)];
   const cat = opts.category ? (params.push(opts.category), `and t.category = $2`) : "";
+  // Transfers list keeps self-moves; other merchant tops are real spend only.
+  const self = opts.category === "Transfers" ? "" : "and not t.self_transfer";
   params.push(opts.limit ?? 6);
   return query<{ merchant: string; total: number; count: number }>(
     `select coalesce(nullif(trim(t.merchant), ''), '(unknown)') as merchant,
             sum(t.amount)::float8 as total,
             count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${IN_MONTH("t", 1)} ${cat}
+      where t.direction = 'out' ${self} and ${IN_MONTH("t", 1)} ${cat}
       group by 1
       order by total desc
       limit $${params.length}`,
@@ -231,9 +236,9 @@ export function getAccountSpend(month: string) {
   return query<AccountSpend>(
     `select a.id::int as id, a.bank, a.card_type, a.nickname, a.last4, a.keyword,
             a.statement_day::int as statement_day, a.due_days::int as due_days, a.plan_months::int as plan_months, a.pay_days,
-            coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
+            coalesce(sum(t.amount) filter (where t.direction = 'out' and not t.self_transfer), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8 as received,
-            count(t.id)::int as count
+            count(t.id) filter (where t.id is not null and (t.direction = 'in' or not t.self_transfer))::int as count
        from accounts a
        left join transactions t
          on t.account_id = a.id and ${IN_MONTH("t", 1)}
@@ -247,7 +252,7 @@ export async function getUnmatchedSpend(month: string) {
   const [row] = await query<{ spent: number; count: number }>(
     `select coalesce(sum(t.amount), 0)::float8 as spent, count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${IN_MONTH("t", 1)} and t.account_id is null`,
+      where ${REAL_OUT} and ${IN_MONTH("t", 1)} and t.account_id is null`,
     [monthDay(month)],
   );
   return row;
@@ -266,9 +271,19 @@ export function listAccountTransactions(accountId: number) {
 export function getLargestTransactions(month: string, limit = 5) {
   return query<Txn>(
     `select ${TXN_COLS} from ${TXN_FROM}
-      where t.direction = 'out' and ${IN_MONTH("t", 1)}
+      where ${REAL_OUT} and ${IN_MONTH("t", 1)}
       order by t.amount desc, t.occurred_at desc
       limit $2`,
     [monthDay(month), limit],
+  );
+}
+
+export function getPaymentCompletions(accountId: number, statement: string) {
+  return query<{ due_date: string; amount: number; completed_at: Date }>(
+    `select due_date::text as due_date, amount::float8 as amount, completed_at
+       from payment_completions
+      where account_id = $1 and statement = $2::date
+      order by due_date`,
+    [accountId, statement],
   );
 }

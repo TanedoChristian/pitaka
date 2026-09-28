@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { updateAccountPlan } from "@/app/actions";
+import { markPaymentComplete, unmarkPaymentComplete, updateAccountPlan } from "@/app/actions";
 import PayDaysField from "@/components/PayDaysField";
 import PendingSubmit from "@/components/PendingSubmit";
 import {
@@ -25,6 +25,7 @@ export default function PaymentPlan({
   savedPayDays,
   savedDueDays,
   payInFull,
+  completedDues = [],
 }: {
   accountId: number;
   statement: string;
@@ -33,6 +34,7 @@ export default function PaymentPlan({
   savedPayDays: number[];
   savedDueDays: number;
   payInFull: number;
+  completedDues?: string[];
 }) {
   const initial = PLAN_MONTHS.includes(savedPlan as (typeof PLAN_MONTHS)[number]) ? savedPlan : 1;
   const [plan, setPlan] = useState(initial);
@@ -51,6 +53,7 @@ export default function PaymentPlan({
       }),
     [payInFull, plan, statement, statementDay, payDays, dueDays],
   );
+  const done = useMemo(() => new Set(completedDues), [completedDues]);
   const first = terms[0];
   const last = terms.at(-1);
   const even = terms.length > 1 && first && last && terms.every((t) => t.amount === first.amount);
@@ -58,6 +61,8 @@ export default function PaymentPlan({
   const onTime = onTimePayDates(statement, payDays, dueDays);
   const skipped = payDays.filter((d) => !onTime.some((ymd) => parseYmd(ymd).d === d));
   const usedDays = [...new Set(terms.map((t) => parseYmd(t.due).d))];
+  const paidTotal = terms.filter((t) => done.has(t.due)).reduce((a, t) => a + t.amount, 0);
+  const leftTotal = Math.max(0, payInFull - paidTotal);
 
   return (
     <section className="card bill-plan">
@@ -73,6 +78,13 @@ export default function PaymentPlan({
             : "Statement total"}
         </p>
         <p className="hero-value bill-full-amt">{formatPeso(payInFull)}</p>
+        {payInFull > 0 && (
+          <p className="hero-delta">
+            {paidTotal > 0
+              ? `${formatPeso(paidTotal)} marked paid · ${formatPeso(leftTotal)} left`
+              : "Nothing marked paid yet"}
+          </p>
+        )}
       </div>
 
       <form action={updateAccountPlan} className="form">
@@ -127,22 +139,45 @@ export default function PaymentPlan({
           </p>
         )}
 
-        <ol className="bill-terms">
-          {terms.map((t) => (
-            <li key={`${t.term}-${t.due}`}>
-              <span>
-                <span className="bill-term-n">Term {t.term}</span>
-                <span className="muted small">{formatLongDate(t.due)}</span>
-              </span>
-              <strong>{formatPeso(t.amount)}</strong>
-            </li>
-          ))}
-        </ol>
-
         <PendingSubmit className="btn primary block" pendingLabel="Saving…">
           Save this plan
         </PendingSubmit>
       </form>
+
+      {terms.length > 0 && (
+        <ol className="bill-terms">
+          {terms.map((t) => {
+            const complete = done.has(t.due);
+            return (
+              <li key={`${t.term}-${t.due}`} className={complete ? "done" : undefined}>
+                <span>
+                  <span className="bill-term-n">
+                    Term {t.term}
+                    {complete ? " · paid" : ""}
+                  </span>
+                  <span className="muted small">{formatLongDate(t.due)}</span>
+                </span>
+                <span className="bill-term-actions">
+                  <strong>{formatPeso(t.amount)}</strong>
+                  <form action={complete ? unmarkPaymentComplete : markPaymentComplete}>
+                    <input type="hidden" name="account_id" value={accountId} />
+                    <input type="hidden" name="statement" value={statement} />
+                    <input type="hidden" name="due_date" value={t.due} />
+                    <input type="hidden" name="amount" value={t.amount.toFixed(2)} />
+                    <PendingSubmit
+                      className={complete ? "btn ghost small" : "btn primary small"}
+                      pendingLabel={complete ? "…" : "…"}
+                      aria-label={complete ? `Undo paid for term ${t.term}` : `Mark term ${t.term} paid`}
+                    >
+                      {complete ? "Undo" : "Done"}
+                    </PendingSubmit>
+                  </form>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </section>
   );
 }

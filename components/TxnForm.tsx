@@ -85,6 +85,11 @@ export default function TxnForm({
 
       <TxnAccountFields accounts={accounts} defaultAccount={defaultAccount} defaultPlan={txn?.plan_months} />
 
+      <label className="check">
+        <input type="checkbox" name="self_transfer" defaultChecked={!!txn?.self_transfer} />
+        Transfer to myself (not spending)
+      </label>
+
       {txn && (
         <label className="check">
           <input type="checkbox" name="remember" defaultChecked={txn.category === "Uncategorized"} />

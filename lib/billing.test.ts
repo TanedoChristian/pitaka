@@ -54,6 +54,23 @@ test("onTimePayDates drops pay days after the bank due date", () => {
   assert.deepEqual(onTimePayDates("2026-09-02", [15, 30], 28), ["2026-09-15", "2026-09-30"]);
 });
 
+test("statement on the 20th: 15th and 30th in that month both count (mid-cycle + after close)", () => {
+  assert.equal(bankDueDate("2026-10-20", 20), "2026-11-09");
+  assert.deepEqual(onTimePayDates("2026-10-20", [15, 30], 20), ["2026-10-15", "2026-10-30"]);
+  const terms = paymentSchedule({
+    total: 4283.7,
+    planMonths: 1,
+    statement: "2026-10-20",
+    statementDay: 20,
+    payDays: [15, 30],
+    dueDays: 20,
+  });
+  assert.deepEqual(terms, [
+    { term: 1, due: "2026-10-15", amount: 2141.85 },
+    { term: 2, due: "2026-10-30", amount: 2141.85 },
+  ]);
+});
+
 test("default cycle stays on the billed statement until the bank due date", () => {
   assert.equal(defaultCycle("2026-09-22", 2, [15, 30], 20).statement, "2026-09-02");
   assert.equal(defaultCycle("2026-09-23", 2, [15, 30], 20).statement, "2026-10-02");

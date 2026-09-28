@@ -60,6 +60,7 @@ function readTxnForm(form: FormData) {
     merchant: String(form.get("merchant") ?? "").trim().slice(0, 80) || null,
     accountKey: String(form.get("account_id") ?? ""),
     planMonths: Number(form.get("plan_months")),
+    selfTransfer: form.get("self_transfer") === "on",
   };
 }
 
@@ -107,9 +108,20 @@ export async function addTransaction(form: FormData) {
   const t = readTxnForm(form);
   const account = await resolveAccount(t.accountKey);
   await query(
-    `insert into transactions (occurred_at, amount, direction, description, merchant, category, account, account_id, source, plan_months)
-     values ($1::timestamp at time zone 'Asia/Manila', $2, $3, $4, $5, $6, $7, $8, 'manual', $9)`,
-    [t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id, planForAccount(account, t.planMonths)],
+    `insert into transactions (occurred_at, amount, direction, description, merchant, category, account, account_id, source, plan_months, self_transfer)
+     values ($1::timestamp at time zone 'Asia/Manila', $2, $3, $4, $5, $6, $7, $8, 'manual', $9, $10)`,
+    [
+      t.when,
+      t.amount,
+      t.direction,
+      t.description,
+      t.merchant,
+      t.category,
+      account.last4,
+      account.id,
+      planForAccount(account, t.planMonths),
+      t.direction === "out" && t.selfTransfer,
+    ],
   );
   revalidatePath("/", "layout");
   redirect(safeBack(form, "/transactions"));
@@ -123,9 +135,21 @@ export async function updateTransaction(form: FormData) {
   await query(
     `update transactions set occurred_at = $2::timestamp at time zone 'Asia/Manila', amount = $3,
             direction = $4, description = $5, merchant = $6, category = $7, account = $8,
-            account_id = $9, needs_review = false, plan_months = $10
+            account_id = $9, needs_review = false, plan_months = $10, self_transfer = $11
       where id = $1`,
-    [id, t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id, planForAccount(account, t.planMonths)],
+    [
+      id,
+      t.when,
+      t.amount,
+      t.direction,
+      t.description,
+      t.merchant,
+      t.category,
+      account.last4,
+      account.id,
+      planForAccount(account, t.planMonths),
+      t.direction === "out" && t.selfTransfer,
+    ],
   );
   if (form.get("remember") === "on" && t.merchant && t.category !== "Uncategorized") {
     await saveRule(t.merchant, t.category, true);
@@ -306,6 +330,53 @@ export async function updateAccountPlan(form: FormData) {
     `update accounts set plan_months = $2, pay_days = $3::int[], due_days = $4
       where id = $1 and bank <> 'cash' and card_type = 'credit'`,
     [id, planMonths, payDays, dueDays],
+  );
+  revalidatePath("/", "layout");
+}
+
+export async function markPaymentComplete(form: FormData) {
+  await requireAuth();
+  const accountId = Number(form.get("account_id"));
+  const statement = String(form.get("statement") ?? "");
+  const due = String(form.get("due_date") ?? "");
+  const amount = Number(form.get("amount"));
+  if (
+    !Number.isInteger(accountId) ||
+    accountId <= 0 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(statement) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(due) ||
+    !Number.isFinite(amount) ||
+    amount < 0
+  ) {
+    return;
+  }
+  await query(
+    `insert into payment_completions (account_id, statement, due_date, amount)
+     values ($1, $2::date, $3::date, $4)
+     on conflict (account_id, statement, due_date)
+     do update set amount = excluded.amount, completed_at = now()`,
+    [accountId, statement, due, amount],
+  );
+  revalidatePath("/", "layout");
+}
+
+export async function unmarkPaymentComplete(form: FormData) {
+  await requireAuth();
+  const accountId = Number(form.get("account_id"));
+  const statement = String(form.get("statement") ?? "");
+  const due = String(form.get("due_date") ?? "");
+  if (
+    !Number.isInteger(accountId) ||
+    accountId <= 0 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(statement) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(due)
+  ) {
+    return;
+  }
+  await query(
+    `delete from payment_completions
+      where account_id = $1 and statement = $2::date and due_date = $3::date`,
+    [accountId, statement, due],
   );
   revalidatePath("/", "layout");
 }

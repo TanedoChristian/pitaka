@@ -167,7 +167,7 @@ export default function AccountForm({ account }: { account?: Account }) {
               </select>
             </label>
             <p className="small muted" style={{ margin: 0 }}>
-              Due date is the statement plus those days. Pay days after that are skipped so the statement is paid in full on time — a 2nd-of-month statement due in 20 days with pay days on the 15th and 30th is paid in full on the 15th.
+              Due date is the statement plus those days. You pay on your pay days in the statement month (even before it closes); any pay day after the bank due is skipped — a 2nd-of-month statement due in 20 days with pays on the 15th and 30th is paid in full on the 15th; a 20th statement with the same pays splits on the 15th and 30th.
             </p>
           </>
         )}

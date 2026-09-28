@@ -47,11 +47,12 @@ export default function TxnList({
                     <span className={review ? "chip warn" : undefined}>
                       {review && t.needs_review ? "Check this" : t.category}
                     </span>
+                    {t.self_transfer && <span className="chip">To myself</span>}
                     <span>{formatDay(t.occurred_at)}</span>
                     {card && <span>{card}</span>}
                   </span>
                 </span>
-                <span className={t.direction === "in" ? "txn-amt in" : "txn-amt"}>
+                <span className={t.direction === "in" ? "txn-amt in" : t.self_transfer ? "txn-amt muted" : "txn-amt"}>
                   {t.direction === "in" ? "+" : "−"}
                   {formatPeso(t.amount)}
                 </span>
@@ -73,7 +74,7 @@ export default function TxnList({
     const g = groups.at(-1)!;
     g.items.push(t);
     if (t.direction === "in") g.inn += t.amount;
-    else g.out += t.amount;
+    else if (!t.self_transfer) g.out += t.amount;
   }
 
   return (
@@ -105,6 +106,7 @@ export default function TxnList({
                         <span className={review ? "chip warn" : "chip"}>
                           {review && t.needs_review ? "Check this" : t.category}
                         </span>
+                        {t.self_transfer && <span className="chip">To myself</span>}
                         <span>{formatTime(t.occurred_at)}</span>
                         {card && <span>{card}</span>}
                         {t.source === "manual" && <span>manual</span>}
@@ -112,7 +114,7 @@ export default function TxnList({
                     </span>
                     <span className="txn-cat">{t.category}</span>
                     <span className="txn-when">{formatTime(t.occurred_at)}</span>
-                    <span className={t.direction === "in" ? "txn-amt in" : "txn-amt"}>
+                    <span className={t.direction === "in" ? "txn-amt in" : t.self_transfer ? "txn-amt muted" : "txn-amt"}>
                       {t.direction === "in" ? "+" : "−"}
                       {formatPeso(t.amount)}
                     </span>

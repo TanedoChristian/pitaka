@@ -140,14 +140,23 @@ export function nextPayDates(after: string, payDays: number[], count: number) {
 }
 
 /**
- * Pay dates after this statement that are still on or before the bank due date.
- * If every pay day is already overdue, pay in full on the due date.
+ * Pay days in the statement’s calendar month that are still on or before the bank due date.
+ * (e.g. statement Oct 20, due Nov 9, pays 15 & 30 → Oct 15 + Oct 30 halves — including the
+ * mid-cycle 15th before the statement closes.)
+ * If every pay day that month is already past due, pay in full on the due date.
  */
 export function onTimePayDates(statement: string, payDays: number[], dueDays?: number | null): string[] {
   const due = bankDueDate(statement, dueDays);
   const days = normalizePayDays(payDays);
   if (!days.length) return [due];
-  const dates = nextPayDates(statement, days, days.length).filter((d) => d <= due);
+  const { y, m } = parseYmd(statement);
+  const dates = [
+    ...new Set(
+      days
+        .map((d) => statementDateOn(y, m, d))
+        .filter((ymd) => ymd <= due),
+    ),
+  ].sort();
   return dates.length ? dates : [due];
 }
 

@@ -99,6 +99,24 @@ const SCHEMA = [
   `insert into accounts (bank, card_type, nickname)
    select 'cash', 'cash', 'Cash'
     where not exists (select 1 from accounts where bank = 'cash')`,
+  `alter table transactions add column if not exists self_transfer boolean not null default false`,
+  `create table if not exists payment_completions (
+    id           bigserial primary key,
+    account_id   bigint not null references accounts(id) on delete cascade,
+    statement    date not null,
+    due_date     date not null,
+    amount       numeric(14,2) not null,
+    completed_at timestamptz not null default now(),
+    unique (account_id, statement, due_date)
+  )`,
+  `create index if not exists payment_completions_account_idx
+     on payment_completions (account_id, statement)`,
+  `alter table payment_completions enable row level security`,
+  `do $$ begin
+     if exists (select 1 from pg_roles where rolname = 'anon') then
+       revoke all on payment_completions from anon, authenticated;
+     end if;
+   end $$`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -190,6 +208,15 @@ export type Txn = {
   raw: string | null;
   needs_review: boolean;
   plan_months: number | null;
+  self_transfer: boolean;
+};
+
+export type PaymentCompletion = {
+  account_id: number;
+  statement: string;
+  due_date: string;
+  amount: number;
+  completed_at: Date;
 };
 
 export type Rule = { id: number; keyword: string; category: string };
