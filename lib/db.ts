@@ -130,17 +130,20 @@ function getClient() {
 
 async function applySchema() {
   const sql = getClient();
-  // One cheap lookup so warm requests (and later navigations in this process) don't
-  // replay every CREATE/ALTER against a remote database.
-  await sql.unsafe(`create table if not exists pitaka_meta (k text primary key, n int not null)`);
-  const rows = (await sql.unsafe(`select n from pitaka_meta where k = 'schema'`)) as { n: number }[];
-  const applied = Number(rows[0]?.n ?? 0);
+  // Own table — public.pitaka_meta already exists as key/value and is not this.
+  await sql.unsafe(
+    `create table if not exists pitaka_schema_version (
+       id int primary key default 1 check (id = 1),
+       applied int not null
+     )`,
+  );
+  const rows = (await sql.unsafe(`select applied from pitaka_schema_version where id = 1`)) as { applied: number }[];
+  const applied = Number(rows[0]?.applied ?? 0);
   for (let i = applied; i < SCHEMA.length; i++) await sql.unsafe(SCHEMA[i]);
   if (applied !== SCHEMA.length) {
     await sql.unsafe(
-      `insert into pitaka_meta (k, n) values ('schema', $1)
-       on conflict (k) do update set n = excluded.n`,
-      [SCHEMA.length],
+      `insert into pitaka_schema_version (id, applied) values (1, ${SCHEMA.length})
+       on conflict (id) do update set applied = excluded.applied`,
     );
   }
 }
