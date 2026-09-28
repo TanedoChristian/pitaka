@@ -6,7 +6,7 @@ import MonthNav from "@/components/MonthNav";
 import { accountLabel } from "@/lib/banks";
 import { effectivePayDays, ordinal, payDaysLabel } from "@/lib/billing";
 import { formatPeso, normalizeMonth } from "@/lib/format";
-import { ensureWallet, getAccount, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
+import { getAccount, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
 
 export default async function AccountsPage({
   searchParams,
@@ -16,7 +16,6 @@ export default async function AccountsPage({
   const sp = await searchParams;
   const month = normalizeMonth(sp.m);
   const editId = Number(sp.edit);
-  await ensureWallet();
   const [rows, unmatched, editing] = await Promise.all([
     getAccountSpend(month),
     getUnmatchedSpend(month),

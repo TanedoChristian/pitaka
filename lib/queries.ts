@@ -2,7 +2,11 @@ import { getBank } from "./banks";
 import { query, type Account, type EmailSource, type Rule, type Txn } from "./db";
 import { DEFAULT_SENDERS } from "./sources";
 
-const MONTH = `to_char(t.occurred_at at time zone 'Asia/Manila', 'YYYY-MM')`;
+const MONTH_LABEL = `to_char(t.occurred_at at time zone 'Asia/Manila', 'YYYY-MM')`;
+/** Index-friendly month window. Pass `${month}-01` (e.g. 2026-09-01). */
+const IN_MONTH = (alias: string, p: number) =>
+  `${alias}.occurred_at >= $${p}::timestamp at time zone 'Asia/Manila' and ${alias}.occurred_at < ($${p}::date + interval '1 month')::timestamp at time zone 'Asia/Manila'`;
+const monthDay = (month: string) => `${month}-01`;
 const TXN_COLS = `t.id::int as id, t.occurred_at, t.amount::float8 as amount, t.direction, t.description,
   t.merchant, t.category, t.account, t.account_id::int as account_id, a.bank as account_bank,
   t.source, t.raw, t.needs_review, t.plan_months::int as plan_months`;
@@ -15,8 +19,8 @@ export async function getSummary(month: string) {
     `select coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8  as received,
             count(*)::int as count
-       from transactions t where ${MONTH} = $1`,
-    [month],
+       from transactions t where ${IN_MONTH("t", 1)}`,
+    [monthDay(month)],
   );
   return row;
 }
@@ -25,9 +29,9 @@ export function getSpendingByCategory(month: string) {
   return query<{ category: string; total: number; count: number }>(
     `select t.category, sum(t.amount)::float8 as total, count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${MONTH} = $1
+      where t.direction = 'out' and ${IN_MONTH("t", 1)}
       group by t.category order by total desc`,
-    [month],
+    [monthDay(month)],
   );
 }
 
@@ -36,9 +40,9 @@ export function getDailySpending(month: string) {
     `select extract(day from t.occurred_at at time zone 'Asia/Manila')::int as day,
             sum(t.amount)::float8 as total
        from transactions t
-      where t.direction = 'out' and ${MONTH} = $1
+      where t.direction = 'out' and ${IN_MONTH("t", 1)}
       group by 1 order by 1`,
-    [month],
+    [monthDay(month)],
   );
 }
 
@@ -52,8 +56,8 @@ export async function listTransactions(opts: {
   const where: string[] = [];
   const params: unknown[] = [];
   if (opts.month) {
-    params.push(opts.month);
-    where.push(`${MONTH} = $${params.length}`);
+    params.push(monthDay(opts.month));
+    where.push(IN_MONTH("t", params.length));
   }
   if (opts.category) {
     params.push(opts.category);
@@ -104,18 +108,19 @@ export async function getSources() {
 
 export function getMonthlyTrend(from: string, to: string) {
   return query<{ month: string; spent: number; received: number }>(
-    `select ${MONTH} as month,
+    `select ${MONTH_LABEL} as month,
             coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8 as received
        from transactions t
-      where ${MONTH} >= $1 and ${MONTH} <= $2
+      where t.occurred_at >= $1::timestamp at time zone 'Asia/Manila'
+        and t.occurred_at < ($2::date + interval '1 month')::timestamp at time zone 'Asia/Manila'
       group by 1`,
-    [from, to],
+    [monthDay(from), monthDay(to)],
   );
 }
 
 export function getTopCounterparties(month: string, opts: { category?: string; limit?: number } = {}) {
-  const params: unknown[] = [month];
+  const params: unknown[] = [monthDay(month)];
   const cat = opts.category ? (params.push(opts.category), `and t.category = $2`) : "";
   params.push(opts.limit ?? 6);
   return query<{ merchant: string; total: number; count: number }>(
@@ -123,7 +128,7 @@ export function getTopCounterparties(month: string, opts: { category?: string; l
             sum(t.amount)::float8 as total,
             count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${MONTH} = $1 ${cat}
+      where t.direction = 'out' and ${IN_MONTH("t", 1)} ${cat}
       group by 1
       order by total desc
       limit $${params.length}`,
@@ -143,20 +148,6 @@ export async function getLastIngest() {
        from ingest_runs order by id desc limit 1`,
   );
   return row ?? null;
-}
-
-export async function ensureWallet() {
-  await query(
-    `insert into accounts (bank, card_type, nickname)
-     select 'cash', 'cash', 'Cash'
-      where not exists (select 1 from accounts where bank = 'cash')`,
-  );
-  await query(
-    `update transactions
-        set account_id = (select id from accounts where bank = 'cash' order by id limit 1)
-      where account_id is null and source = 'manual'`,
-  );
-  await attachEmailsToCards();
 }
 
 /** Stamp unmatched email rows onto the card whose keyword/From they belong to. */
@@ -211,7 +202,6 @@ export async function attachEmailsToCards() {
 }
 
 export async function getAccounts() {
-  await ensureWallet();
   return query<Account>(
     `select ${ACCOUNT_COLS}
        from accounts
@@ -220,7 +210,6 @@ export async function getAccounts() {
 }
 
 export async function getAccount(id: number) {
-  await ensureWallet();
   const [row] = await query<Account>(
     `select ${ACCOUNT_COLS}
        from accounts
@@ -241,10 +230,10 @@ export function getAccountSpend(month: string) {
             count(t.id)::int as count
        from accounts a
        left join transactions t
-         on t.account_id = a.id and ${MONTH} = $1
+         on t.account_id = a.id and ${IN_MONTH("t", 1)}
       group by a.id
       order by a.bank = 'cash' desc, spent desc, a.id`,
-    [month],
+    [monthDay(month)],
   );
 }
 
@@ -252,8 +241,8 @@ export async function getUnmatchedSpend(month: string) {
   const [row] = await query<{ spent: number; count: number }>(
     `select coalesce(sum(t.amount), 0)::float8 as spent, count(*)::int as count
        from transactions t
-      where t.direction = 'out' and ${MONTH} = $1 and t.account_id is null`,
-    [month],
+      where t.direction = 'out' and ${IN_MONTH("t", 1)} and t.account_id is null`,
+    [monthDay(month)],
   );
   return row;
 }
@@ -271,9 +260,9 @@ export function listAccountTransactions(accountId: number) {
 export function getLargestTransactions(month: string, limit = 5) {
   return query<Txn>(
     `select ${TXN_COLS} from ${TXN_FROM}
-      where t.direction = 'out' and ${MONTH} = $1
+      where t.direction = 'out' and ${IN_MONTH("t", 1)}
       order by t.amount desc, t.occurred_at desc
       limit $2`,
-    [month, limit],
+    [monthDay(month), limit],
   );
 }

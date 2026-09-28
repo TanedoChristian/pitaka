@@ -96,6 +96,9 @@ const SCHEMA = [
   // Debit + credit at the same bank share a sender; last 4 tells them apart.
   `drop index if exists accounts_keyword_idx`,
   `alter table accounts add column if not exists pay_days int[]`,
+  `insert into accounts (bank, card_type, nickname)
+   select 'cash', 'cash', 'Cash'
+    where not exists (select 1 from accounts where bank = 'cash')`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -125,15 +128,30 @@ function getClient() {
   return g.__pitakaSql;
 }
 
+async function applySchema() {
+  const sql = getClient();
+  // One cheap lookup so warm requests (and later navigations in this process) don't
+  // replay every CREATE/ALTER against a remote database.
+  await sql.unsafe(`create table if not exists pitaka_meta (k text primary key, n int not null)`);
+  const rows = (await sql.unsafe(`select n from pitaka_meta where k = 'schema'`)) as { n: number }[];
+  const applied = Number(rows[0]?.n ?? 0);
+  for (let i = applied; i < SCHEMA.length; i++) await sql.unsafe(SCHEMA[i]);
+  if (applied !== SCHEMA.length) {
+    await sql.unsafe(
+      `insert into pitaka_meta (k, n) values ('schema', $1)
+       on conflict (k) do update set n = excluded.n`,
+      [SCHEMA.length],
+    );
+  }
+}
+
 function ensureSchema() {
   if (g.__pitakaSchemaN !== SCHEMA.length) {
     g.__pitakaReady = null;
     g.__pitakaSchemaN = SCHEMA.length;
   }
   if (!g.__pitakaReady) {
-    g.__pitakaReady = (async () => {
-      for (const stmt of SCHEMA) await getClient().unsafe(stmt);
-    })().catch((err) => {
+    g.__pitakaReady = applySchema().catch((err) => {
       g.__pitakaReady = null;
       throw err;
     });
