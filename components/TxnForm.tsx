@@ -1,7 +1,8 @@
-import { accountLabel, paymentChoices } from "@/lib/banks";
+import { paymentChoices } from "@/lib/banks";
 import type { Account, Txn } from "@/lib/db";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { toLocalInput } from "@/lib/format";
+import TxnAccountFields from "@/components/TxnAccountFields";
 
 /** Shared add/edit form. Rendered on the server; posts to a server action. */
 export default function TxnForm({
@@ -10,22 +11,26 @@ export default function TxnForm({
   submitLabel,
   back,
   accounts = [],
+  defaultAccountId,
 }: {
   action: (form: FormData) => Promise<void>;
   txn?: Txn;
   submitLabel: string;
   back?: string;
   accounts?: Account[];
+  defaultAccountId?: number;
 }) {
   const dir = txn?.direction ?? "out";
-  const { cash, cards, pending } = paymentChoices(accounts);
+  const { cash, pending } = paymentChoices(accounts);
   const defaultAccount = txn?.account_id
     ? String(txn.account_id)
-    : cash
-      ? String(cash.id)
-      : pending[0]
-        ? `bank:${pending[0].id}`
-        : "";
+    : defaultAccountId
+      ? String(defaultAccountId)
+      : cash
+        ? String(cash.id)
+        : pending[0]
+          ? `bank:${pending[0].id}`
+          : "";
   return (
     <form action={action} className="form">
       {txn && <input type="hidden" name="id" value={txn.id} />}
@@ -77,22 +82,7 @@ export default function TxnForm({
         </label>
       </div>
 
-      <label>
-        Account
-        <select name="account_id" defaultValue={defaultAccount}>
-          {cash && <option value={String(cash.id)}>Cash</option>}
-          {cards.map((a) => (
-            <option key={a.id} value={String(a.id)}>
-              {accountLabel(a)}
-            </option>
-          ))}
-          {pending.map((b) => (
-            <option key={b.id} value={`bank:${b.id}`}>
-              {b.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <TxnAccountFields accounts={accounts} defaultAccount={defaultAccount} defaultPlan={txn?.plan_months} />
 
       {txn && (
         <label className="check">

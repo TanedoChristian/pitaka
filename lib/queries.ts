@@ -5,8 +5,10 @@ import { DEFAULT_SENDERS } from "./sources";
 const MONTH = `to_char(t.occurred_at at time zone 'Asia/Manila', 'YYYY-MM')`;
 const TXN_COLS = `t.id::int as id, t.occurred_at, t.amount::float8 as amount, t.direction, t.description,
   t.merchant, t.category, t.account, t.account_id::int as account_id, a.bank as account_bank,
-  t.source, t.raw, t.needs_review`;
+  t.source, t.raw, t.needs_review, t.plan_months::int as plan_months`;
 const TXN_FROM = `transactions t left join accounts a on a.id = t.account_id`;
+const ACCOUNT_COLS = `id::int as id, bank, card_type, nickname, last4, keyword,
+  statement_day::int as statement_day, due_days::int as due_days, plan_months::int as plan_months, pay_days`;
 
 export async function getSummary(month: string) {
   const [row] = await query<{ spent: number; received: number; count: number }>(
@@ -183,7 +185,7 @@ export async function attachEmailsToCards() {
   );
 
   const cards = await query<Account>(
-    `select id::int as id, bank, card_type, nickname, last4, keyword
+    `select ${ACCOUNT_COLS}
        from accounts
       where bank <> 'cash' and keyword is not null`,
   );
@@ -211,7 +213,7 @@ export async function attachEmailsToCards() {
 export async function getAccounts() {
   await ensureWallet();
   return query<Account>(
-    `select id::int as id, bank, card_type, nickname, last4, keyword
+    `select ${ACCOUNT_COLS}
        from accounts
       order by bank = 'cash' desc, created_at, id`,
   );
@@ -220,7 +222,7 @@ export async function getAccounts() {
 export async function getAccount(id: number) {
   await ensureWallet();
   const [row] = await query<Account>(
-    `select id::int as id, bank, card_type, nickname, last4, keyword
+    `select ${ACCOUNT_COLS}
        from accounts
       where id = $1 and bank <> 'cash'`,
     [id],
@@ -233,6 +235,7 @@ export type AccountSpend = Account & { spent: number; received: number; count: n
 export function getAccountSpend(month: string) {
   return query<AccountSpend>(
     `select a.id::int as id, a.bank, a.card_type, a.nickname, a.last4, a.keyword,
+            a.statement_day::int as statement_day, a.due_days::int as due_days, a.plan_months::int as plan_months, a.pay_days,
             coalesce(sum(t.amount) filter (where t.direction = 'out'), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8 as received,
             count(t.id)::int as count
@@ -253,6 +256,16 @@ export async function getUnmatchedSpend(month: string) {
     [month],
   );
   return row;
+}
+
+export function listAccountTransactions(accountId: number) {
+  return query<Txn>(
+    `select ${TXN_COLS} from ${TXN_FROM}
+      where t.account_id = $1
+      order by t.occurred_at desc, t.id desc
+      limit 2000`,
+    [accountId],
+  );
 }
 
 export function getLargestTransactions(month: string, limit = 5) {

@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { checkPassword, requireAuth, SESSION_COOKIE, SESSION_MAX_AGE, sessionToken } from "@/lib/auth";
 import { getBank, isBankId, normalizeKeyword } from "@/lib/banks";
+import { isPlanMonths, normalizePayDays } from "@/lib/billing";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
 import { attachEmailsToCards } from "@/lib/queries";
@@ -58,34 +59,47 @@ function readTxnForm(form: FormData) {
     description: String(form.get("description") ?? "").trim().slice(0, 200),
     merchant: String(form.get("merchant") ?? "").trim().slice(0, 80) || null,
     accountKey: String(form.get("account_id") ?? ""),
+    planMonths: Number(form.get("plan_months")),
   };
 }
 
-async function resolveAccount(key: string) {
+type ResolvedAccount = { id: number | null; last4: string | null; cardType: string | null };
+
+async function resolveAccount(key: string): Promise<ResolvedAccount> {
   if (key.startsWith("bank:")) {
     const bank = key.slice(5);
-    if (!isBankId(bank)) return { id: null as number | null, last4: null as string | null };
-    const [existing] = await query<{ id: number; last4: string | null }>(
-      `select id::int as id, last4 from accounts where bank = $1 order by id limit 1`,
+    if (!isBankId(bank)) return { id: null, last4: null, cardType: null };
+    const [existing] = await query<{ id: number; last4: string | null; card_type: string }>(
+      `select id::int as id, last4, card_type from accounts where bank = $1 order by id limit 1`,
       [bank],
     );
-    if (existing) return existing;
+    if (existing) return { id: existing.id, last4: existing.last4, cardType: existing.card_type };
     const info = getBank(bank);
-    const [row] = await query<{ id: number; last4: string | null }>(
+    const [row] = await query<{ id: number; last4: string | null; card_type: string }>(
       `insert into accounts (bank, card_type, nickname, keyword)
        values ($1, 'debit', $2, $3)
-       returning id::int as id, last4`,
+       returning id::int as id, last4, card_type`,
       [bank, info?.label ?? bank, info?.defaultKeyword ?? null],
     );
-    return row ?? { id: null, last4: null };
+    return row ? { id: row.id, last4: row.last4, cardType: row.card_type } : { id: null, last4: null, cardType: null };
   }
   const accountId = Number(key) || 0;
-  if (!accountId) return { id: null as number | null, last4: null as string | null };
-  const [row] = await query<{ id: number; last4: string | null }>(
-    `select id::int as id, last4 from accounts where id = $1`,
+  if (!accountId) return { id: null, last4: null, cardType: null };
+  const [row] = await query<{ id: number; last4: string | null; card_type: string }>(
+    `select id::int as id, last4, card_type from accounts where id = $1`,
     [accountId],
   );
-  return row ? { id: row.id, last4: row.last4 } : { id: null, last4: null };
+  return row ? { id: row.id, last4: row.last4, cardType: row.card_type } : { id: null, last4: null, cardType: null };
+}
+
+function planForAccount(account: ResolvedAccount, raw: number) {
+  if (account.cardType !== "credit") return null;
+  return isPlanMonths(raw) ? raw : null;
+}
+
+function safeBack(form: FormData, fallback: string) {
+  const back = String(form.get("back") ?? "");
+  return back.startsWith("/") && !back.startsWith("//") ? back : fallback;
 }
 
 export async function addTransaction(form: FormData) {
@@ -93,12 +107,12 @@ export async function addTransaction(form: FormData) {
   const t = readTxnForm(form);
   const account = await resolveAccount(t.accountKey);
   await query(
-    `insert into transactions (occurred_at, amount, direction, description, merchant, category, account, account_id, source)
-     values ($1::timestamp at time zone 'Asia/Manila', $2, $3, $4, $5, $6, $7, $8, 'manual')`,
-    [t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id],
+    `insert into transactions (occurred_at, amount, direction, description, merchant, category, account, account_id, source, plan_months)
+     values ($1::timestamp at time zone 'Asia/Manila', $2, $3, $4, $5, $6, $7, $8, 'manual', $9)`,
+    [t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id, planForAccount(account, t.planMonths)],
   );
   revalidatePath("/", "layout");
-  redirect("/transactions");
+  redirect(safeBack(form, "/transactions"));
 }
 
 export async function updateTransaction(form: FormData) {
@@ -109,16 +123,15 @@ export async function updateTransaction(form: FormData) {
   await query(
     `update transactions set occurred_at = $2::timestamp at time zone 'Asia/Manila', amount = $3,
             direction = $4, description = $5, merchant = $6, category = $7, account = $8,
-            account_id = $9, needs_review = false
+            account_id = $9, needs_review = false, plan_months = $10
       where id = $1`,
-    [id, t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id],
+    [id, t.when, t.amount, t.direction, t.description, t.merchant, t.category, account.last4, account.id, planForAccount(account, t.planMonths)],
   );
   if (form.get("remember") === "on" && t.merchant && t.category !== "Uncategorized") {
     await saveRule(t.merchant, t.category, true);
   }
   revalidatePath("/", "layout");
-  const back = String(form.get("back") ?? "");
-  redirect(back.startsWith("/") && !back.startsWith("//") ? back : "/transactions");
+  redirect(safeBack(form, "/transactions"));
 }
 
 export async function deleteTransaction(form: FormData) {
@@ -188,13 +201,30 @@ function readCardForm(form: FormData) {
   const digits = String(form.get("last4") ?? "").replace(/\D/g, "");
   const last4 = digits ? digits.slice(-4) : null;
   if (last4 && last4.length !== 4) return { ok: false as const, error: "Last 4 should be four digits." };
+  const cardType = form.get("card_type") === "credit" ? "credit" : "debit";
+  let statementDay: number | null = null;
+  let payDays: number[] = [];
+  let planMonths = 1;
+  if (cardType === "credit") {
+    statementDay = Number(form.get("statement_day"));
+    payDays = normalizePayDays(form.getAll("pay_days").map((v) => Number(v)));
+    planMonths = Number(form.get("plan_months"));
+    if (!Number.isInteger(statementDay) || statementDay < 1 || statementDay > 28) {
+      return { ok: false as const, error: "Statement date should be a day of the month from 1 to 28." };
+    }
+    if (!payDays.length) return { ok: false as const, error: "Add at least one pay day each month, like the 15th and 30th." };
+    if (!isPlanMonths(planMonths)) planMonths = 1;
+  }
   return {
     ok: true as const,
     bank,
-    cardType: form.get("card_type") === "credit" ? "credit" : "debit",
+    cardType,
     keyword,
     last4,
     nickname: String(form.get("nickname") ?? "").trim().slice(0, 40) || null,
+    statementDay,
+    payDays,
+    planMonths,
   };
 }
 
@@ -210,23 +240,18 @@ export async function addAccount(_prev: string | null, form: FormData): Promise<
   const t = readCardForm(form);
   if (!t.ok) return t.error;
 
-  const [exists] = await query<{ n: number }>(
-    `select count(*)::int as n from accounts where lower(keyword) = $1`,
-    [t.keyword],
-  );
-  if (exists.n) return "That email keyword is already on another card.";
-
   const [row] = await query<{ id: number }>(
-    `insert into accounts (bank, card_type, nickname, last4, keyword)
-     values ($1, $2, $3, $4, $5)
+    `insert into accounts (bank, card_type, nickname, last4, keyword, statement_day, due_days, plan_months, pay_days)
+     values ($1, $2, $3, $4, $5, $6, null, $7, $8::int[])
      returning id::int as id`,
-    [t.bank, t.cardType, t.nickname, t.last4, t.keyword],
+    [t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.planMonths, t.payDays],
   );
 
   await rememberSender(t.keyword);
   if (row) await attachEmailsToCards();
 
   revalidatePath("/", "layout");
+  if (row && t.cardType === "credit") redirect(`/accounts/${row.id}`);
   return null;
 }
 
@@ -237,18 +262,13 @@ export async function updateAccount(_prev: string | null, form: FormData): Promi
   const t = readCardForm(form);
   if (!t.ok) return t.error;
 
-  const [exists] = await query<{ n: number }>(
-    `select count(*)::int as n from accounts where lower(keyword) = $1 and id <> $2`,
-    [t.keyword, id],
-  );
-  if (exists.n) return "That email keyword is already on another card.";
-
   const rows = await query(
     `update accounts
-        set bank = $2, card_type = $3, nickname = $4, last4 = $5, keyword = $6
+        set bank = $2, card_type = $3, nickname = $4, last4 = $5, keyword = $6,
+            statement_day = $7, due_days = null, plan_months = $8, pay_days = $9::int[]
       where id = $1 and bank <> 'cash'
       returning id`,
-    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword],
+    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.planMonths, t.payDays],
   );
   if (!rows.length) return "Card not found.";
 
@@ -256,7 +276,21 @@ export async function updateAccount(_prev: string | null, form: FormData): Promi
   await attachEmailsToCards();
 
   revalidatePath("/", "layout");
-  redirect("/accounts");
+  redirect(t.cardType === "credit" ? `/accounts/${id}` : "/accounts");
+}
+
+export async function updateAccountPlan(form: FormData) {
+  await requireAuth();
+  const id = Number(form.get("id"));
+  const planMonths = Number(form.get("plan_months"));
+  const payDays = normalizePayDays(form.getAll("pay_days").map((v) => Number(v)));
+  if (!Number.isInteger(id) || id <= 0 || !isPlanMonths(planMonths) || !payDays.length) return;
+  await query(
+    `update accounts set plan_months = $2, pay_days = $3::int[], due_days = null
+      where id = $1 and bank <> 'cash' and card_type = 'credit'`,
+    [id, planMonths, payDays],
+  );
+  revalidatePath("/", "layout");
 }
 
 export async function deleteAccount(form: FormData) {

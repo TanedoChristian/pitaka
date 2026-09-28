@@ -3,7 +3,9 @@
 import { useActionState, useId, useMemo, useState } from "react";
 import { addAccount, updateAccount } from "@/app/actions";
 import BankCard from "@/components/BankCard";
+import PayDaysField from "@/components/PayDaysField";
 import { BANKS, isBankId } from "@/lib/banks";
+import { effectivePayDays, ordinal } from "@/lib/billing";
 import type { Account } from "@/lib/db";
 
 export default function AccountForm({ account }: { account?: Account }) {
@@ -118,8 +120,43 @@ export default function AccountForm({ account }: { account?: Account }) {
         </label>
         <p id={hintId} className="small muted" style={{ margin: 0 }}>
           Gmail uses this to pull alerts for this card — a sender like{" "}
-          <code>{info.defaultKeyword}</code>, or a phrase from the subject. {info.hint}.
+          <code>{info.defaultKeyword}</code>, or a phrase from the subject. {info.hint}. Same bank as
+          another card is fine; last 4 digits tell them apart.
         </p>
+
+        {cardType === "credit" && (
+          <>
+            <label>
+              Statement date
+              <select name="statement_day" defaultValue={account?.statement_day ? String(account.statement_day) : ""} required>
+                <option value="" disabled>
+                  Day of month
+                </option>
+                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>
+                    {ordinal(d)} of every month
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PayDaysField initial={effectivePayDays(account?.pay_days, account?.statement_day, account?.due_days)} />
+            <label>
+              Payment plan
+              <select name="plan_months" defaultValue={String(account?.plan_months && account.plan_months > 1 ? account.plan_months : 1)}>
+                <option value="1">Pay this cycle (split across pay days)</option>
+                <option value="3">3 months</option>
+                <option value="6">6 months</option>
+                <option value="9">9 months</option>
+                <option value="12">12 months</option>
+                <option value="18">18 months</option>
+                <option value="24">24 months</option>
+              </select>
+            </label>
+            <p className="small muted" style={{ margin: 0 }}>
+              A 2nd-of-month statement with pay days on the 15th and 30th splits what you owe across those dates. A 3-month plan is six payments.
+            </p>
+          </>
+        )}
 
         <button className="btn primary block" disabled={pending}>
           {pending ? (account ? "Saving…" : "Adding…") : account ? "Save card" : "Add card"}

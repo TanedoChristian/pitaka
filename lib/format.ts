@@ -49,6 +49,28 @@ export function shiftMonth(m: string, delta: number) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Calendar day like 2026-09-22, formatted in Manila/UTC (no timezone shift). */
+export function formatLongDate(ymd: string) {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, d)).toLocaleDateString("en-PH", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function formatShortDate(ymd: string) {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, d)).toLocaleDateString("en-PH", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export function monthLabel(m: string) {
   const [y, mo] = m.split("-").map(Number);
   return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString("en-PH", {

@@ -88,6 +88,13 @@ const SCHEMA = [
      end if;
    end $$`,
   `create index if not exists transactions_account_id_idx on transactions (account_id)`,
+  `alter table accounts add column if not exists statement_day int`,
+  `alter table accounts add column if not exists due_days int`,
+  `alter table accounts add column if not exists plan_months int not null default 1`,
+  `alter table transactions add column if not exists plan_months int`,
+  // Debit + credit at the same bank share a sender; last 4 tells them apart.
+  `drop index if exists accounts_keyword_idx`,
+  `alter table accounts add column if not exists pay_days int[]`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -157,6 +164,7 @@ export type Txn = {
   source: string;
   raw: string | null;
   needs_review: boolean;
+  plan_months: number | null;
 };
 
 export type Rule = { id: number; keyword: string; category: string };
@@ -170,6 +178,10 @@ export type Account = {
   nickname: string | null;
   last4: string | null;
   keyword: string | null;
+  statement_day: number | null;
+  due_days: number | null;
+  plan_months: number | null;
+  pay_days: number[] | null;
 };
 
 /** Apply the schema now and close the connection (used by `npm run db:migrate`). */

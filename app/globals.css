@@ -380,14 +380,57 @@ h2 { font-size: 0.95rem; font-weight: 650; }
   text-transform: uppercase;
   color: var(--muted);
 }
-.activity-stat .v {
-  margin-top: 4px;
-  font-size: clamp(0.92rem, 3.4vw, 1.2rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  white-space: nowrap;
+.activity-stat .v.wrap {
+  white-space: normal;
+  font-size: 0.95rem;
+  line-height: 1.25;
+}
+.eyebrow a { color: var(--accent); font-weight: 700; }
+.cycle-nav { align-items: center; }
+.cycle-nav-label { min-width: 0; text-align: center; }
+.cycle-nav h1 {
+  font-size: clamp(1.05rem, 3.4vw, 1.35rem);
+  margin: 2px 0 0;
+}
+.wallet-card-link { display: block; color: inherit; }
+.wallet-card-link:hover .pay-face { filter: brightness(1.04); }
+.wallet-bill { margin: 0; }
+.wallet-actions { flex-wrap: wrap; }
+.bill-full { display: grid; gap: 4px; }
+.bill-full-amt { font-size: clamp(1.8rem, 6vw, 2.4rem); }
+.bill-each { margin: 0; font-size: 15px; }
+.bill-terms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+.bill-terms li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+.bill-terms li:first-child { border-top: 0; }
+.bill-term-n {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+}
+.pay-days { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+.pay-days legend { font-weight: 600; }
+.pay-days-list { display: grid; gap: 8px; }
+.pay-days-list label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .activity-tools {

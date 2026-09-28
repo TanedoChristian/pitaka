@@ -4,6 +4,7 @@ import AccountForm from "@/components/AccountForm";
 import BankCard from "@/components/BankCard";
 import MonthNav from "@/components/MonthNav";
 import { accountLabel } from "@/lib/banks";
+import { effectivePayDays, ordinal, payDaysLabel } from "@/lib/billing";
 import { formatPeso, normalizeMonth } from "@/lib/format";
 import { ensureWallet, getAccount, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
 
@@ -58,10 +59,23 @@ export default async function AccountsPage({
           </span>
         </div>
         <div className="wallet-grid">
-          {cards.map((card) => (
+          {cards.map((card) => {
+            const days = effectivePayDays(card.pay_days, card.statement_day, card.due_days);
+            return (
             <div key={card.id} className={`wallet-item${editing?.id === card.id ? " is-editing" : ""}`}>
-              <BankCard account={card} spent={card.spent} count={card.count} />
+              <Link href={`/accounts/${card.id}`} className="wallet-card-link">
+                <BankCard account={card} spent={card.spent} count={card.count} />
+              </Link>
+              {card.card_type === "credit" && card.statement_day && days.length > 0 && (
+                <p className="muted small wallet-bill">
+                  Statement {ordinal(card.statement_day)} · pays {payDaysLabel(days)}
+                  {card.plan_months && card.plan_months > 1 ? ` · ${card.plan_months}-month plan` : ""}
+                </p>
+              )}
               <div className="wallet-actions">
+                <Link href={`/accounts/${card.id}`} className="btn">
+                  Statement
+                </Link>
                 <Link href={`/accounts?m=${month}&edit=${card.id}`} className="btn">
                   Edit
                 </Link>
@@ -73,11 +87,12 @@ export default async function AccountsPage({
                 </form>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         {cards.length === 0 && (
           <p className="muted small" style={{ margin: "12px 0 0" }}>
-            Add a bank card below. Its keyword is what Gmail uses to pull that card’s emails into Pitaka.
+            Add a bank card below. For a credit card, set the statement day and the days you pay (15th and 30th, for example).
           </p>
         )}
       </section>
