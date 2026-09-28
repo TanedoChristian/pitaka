@@ -21,7 +21,7 @@ Mobile-first; add it to your phone's home screen and it runs full-screen.
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | Supabase pooler connection string (port 6543) |
+   | `DATABASE_URL` | Supabase **Transaction pooler** string (port **6543**, not 5432) |
    | `APP_PASSWORD` | the password you'll log in with (make it long) |
    | `SESSION_SECRET` | `openssl rand -hex 32` |
    | `INGEST_SECRET` | `openssl rand -hex 32` (the Apps Script uses this too) |

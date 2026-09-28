@@ -64,7 +64,7 @@ export default async function AccountsPage({
             const dueDays = effectiveDueDays(card.due_days);
             return (
             <div key={card.id} className={`wallet-item${editing?.id === card.id ? " is-editing" : ""}`}>
-              <Link href={`/accounts/${card.id}`} className="wallet-card-link">
+              <Link href={`/accounts/${card.id}`} prefetch={false} className="wallet-card-link">
                 <BankCard account={card} spent={card.spent} count={card.count} />
               </Link>
               {card.card_type === "credit" && card.statement_day && days.length > 0 && (
@@ -74,10 +74,10 @@ export default async function AccountsPage({
                 </p>
               )}
               <div className="wallet-actions">
-                <Link href={`/accounts/${card.id}`} className="btn">
+                <Link href={`/accounts/${card.id}`} prefetch={false} className="btn">
                   Statement
                 </Link>
-                <Link href={`/accounts?m=${month}&edit=${card.id}`} className="btn">
+                <Link href={`/accounts?m=${month}&edit=${card.id}`} prefetch={false} className="btn">
                   Edit
                 </Link>
                 <form action={deleteAccount}>

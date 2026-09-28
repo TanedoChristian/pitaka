@@ -28,7 +28,7 @@ function Links() {
     const active = it.href === "/" ? path === "/" : path.startsWith(it.href);
     return (
       <li key={it.href}>
-        <Link href={it.href} aria-current={active ? "page" : undefined}>
+        <Link href={it.href} prefetch={false} aria-current={active ? "page" : undefined}>
           <Icon d={it.icon} />
           {it.label}
         </Link>

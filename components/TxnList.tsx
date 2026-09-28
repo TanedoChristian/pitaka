@@ -40,7 +40,7 @@ export default function TxnList({
           const card = cardLabel(t);
           return (
             <li key={t.id}>
-              <Link href={`/transactions/${t.id}`} className="recent-row" title={name}>
+              <Link href={`/transactions/${t.id}`} prefetch={false} className="recent-row" title={name}>
                 <span className="txn-body">
                   <span className="txn-title">{shortMerchant(name)}</span>
                   <span className="recent-meta">
@@ -96,7 +96,7 @@ export default function TxnList({
               const mark = shortMerchant(name).replace(/[^A-Za-z0-9]/g, "").slice(0, 1).toUpperCase() || "?";
               return (
                 <li key={t.id}>
-                  <Link href={`/transactions/${t.id}`} className="txn-row" title={name}>
+                  <Link href={`/transactions/${t.id}`} prefetch={false} className="txn-row" title={name}>
                     <span className={`txn-mark ${t.direction === "in" ? "in" : ""}`} aria-hidden="true">
                       {mark}
                     </span>

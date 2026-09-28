@@ -128,17 +128,27 @@ const g = globalThis as unknown as {
   __pitakaSchemaN?: number;
 };
 
+/**
+ * Vercel spins up many short-lived isolates. Session-mode pooler (port 5432) caps
+ * ~15 clients and throws EMAXCONNSESSION; transaction mode (6543) multiplexes.
+ */
+function normalizeDatabaseUrl(url: string) {
+  return url.replace(/(\.pooler\.supabase\.com):5432(?=\/|$|\?)/, "$1:6543");
+}
+
 function getClient() {
   if (!g.__pitakaSql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
+    const raw = process.env.DATABASE_URL;
+    if (!raw) throw new Error("DATABASE_URL is not set");
+    const url = normalizeDatabaseUrl(raw);
     const local = /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url);
     g.__pitakaSql = postgres(url, {
       ssl: local ? false : "require",
-      // Supabase's transaction pooler (port 6543) doesn't support prepared statements.
+      // Transaction pooler + serverless: one connection per isolate, no prepared stmts.
       prepare: false,
-      max: 5,
-      idle_timeout: 20,
+      max: 1,
+      idle_timeout: 10,
+      max_lifetime: 60 * 5,
       connect_timeout: 10,
       onnotice: () => {}, // silence "already exists, skipping" from the idempotent schema
     });
