@@ -12,7 +12,7 @@ export default function LoginForm() {
         <input type="password" name="password" autoComplete="current-password" required autoFocus />
       </label>
       {error && <p className="error" role="alert">{error}</p>}
-      <button className="btn primary block" disabled={pending}>
+      <button className="btn primary block" disabled={pending} aria-busy={pending}>
         {pending ? "Checking…" : "Log in"}
       </button>
     </form>

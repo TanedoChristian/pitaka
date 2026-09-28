@@ -203,14 +203,19 @@ function readCardForm(form: FormData) {
   if (last4 && last4.length !== 4) return { ok: false as const, error: "Last 4 should be four digits." };
   const cardType = form.get("card_type") === "credit" ? "credit" : "debit";
   let statementDay: number | null = null;
+  let dueDays: number | null = null;
   let payDays: number[] = [];
   let planMonths = 1;
   if (cardType === "credit") {
     statementDay = Number(form.get("statement_day"));
+    dueDays = Number(form.get("due_days"));
     payDays = normalizePayDays(form.getAll("pay_days").map((v) => Number(v)));
     planMonths = Number(form.get("plan_months"));
     if (!Number.isInteger(statementDay) || statementDay < 1 || statementDay > 28) {
       return { ok: false as const, error: "Statement date should be a day of the month from 1 to 28." };
+    }
+    if (!Number.isInteger(dueDays) || dueDays < 1 || dueDays > 45) {
+      return { ok: false as const, error: "Days until due should be between 1 and 45." };
     }
     if (!payDays.length) return { ok: false as const, error: "Add at least one pay day each month, like the 15th and 30th." };
     if (!isPlanMonths(planMonths)) planMonths = 1;
@@ -223,6 +228,7 @@ function readCardForm(form: FormData) {
     last4,
     nickname: String(form.get("nickname") ?? "").trim().slice(0, 40) || null,
     statementDay,
+    dueDays,
     payDays,
     planMonths,
   };
@@ -242,9 +248,9 @@ export async function addAccount(_prev: string | null, form: FormData): Promise<
 
   const [row] = await query<{ id: number }>(
     `insert into accounts (bank, card_type, nickname, last4, keyword, statement_day, due_days, plan_months, pay_days)
-     values ($1, $2, $3, $4, $5, $6, null, $7, $8::int[])
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9::int[])
      returning id::int as id`,
-    [t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.planMonths, t.payDays],
+    [t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays],
   );
 
   await rememberSender(t.keyword);
@@ -265,10 +271,10 @@ export async function updateAccount(_prev: string | null, form: FormData): Promi
   const rows = await query(
     `update accounts
         set bank = $2, card_type = $3, nickname = $4, last4 = $5, keyword = $6,
-            statement_day = $7, due_days = null, plan_months = $8, pay_days = $9::int[]
+            statement_day = $7, due_days = $8, plan_months = $9, pay_days = $10::int[]
       where id = $1 and bank <> 'cash'
       returning id`,
-    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.planMonths, t.payDays],
+    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays],
   );
   if (!rows.length) return "Card not found.";
 
@@ -283,12 +289,23 @@ export async function updateAccountPlan(form: FormData) {
   await requireAuth();
   const id = Number(form.get("id"));
   const planMonths = Number(form.get("plan_months"));
+  const dueDays = Number(form.get("due_days"));
   const payDays = normalizePayDays(form.getAll("pay_days").map((v) => Number(v)));
-  if (!Number.isInteger(id) || id <= 0 || !isPlanMonths(planMonths) || !payDays.length) return;
+  if (
+    !Number.isInteger(id) ||
+    id <= 0 ||
+    !isPlanMonths(planMonths) ||
+    !payDays.length ||
+    !Number.isInteger(dueDays) ||
+    dueDays < 1 ||
+    dueDays > 45
+  ) {
+    return;
+  }
   await query(
-    `update accounts set plan_months = $2, pay_days = $3::int[], due_days = null
+    `update accounts set plan_months = $2, pay_days = $3::int[], due_days = $4
       where id = $1 and bank <> 'cash' and card_type = 'credit'`,
-    [id, planMonths, payDays],
+    [id, planMonths, payDays, dueDays],
   );
   revalidatePath("/", "layout");
 }

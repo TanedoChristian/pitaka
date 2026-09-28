@@ -3,8 +3,9 @@ import { deleteAccount } from "@/app/actions";
 import AccountForm from "@/components/AccountForm";
 import BankCard from "@/components/BankCard";
 import MonthNav from "@/components/MonthNav";
+import PendingSubmit from "@/components/PendingSubmit";
 import { accountLabel } from "@/lib/banks";
-import { effectivePayDays, ordinal, payDaysLabel } from "@/lib/billing";
+import { effectiveDueDays, effectivePayDays, ordinal, payDaysLabel } from "@/lib/billing";
 import { formatPeso, normalizeMonth } from "@/lib/format";
 import { getAccount, getAccountSpend, getUnmatchedSpend } from "@/lib/queries";
 
@@ -60,6 +61,7 @@ export default async function AccountsPage({
         <div className="wallet-grid">
           {cards.map((card) => {
             const days = effectivePayDays(card.pay_days, card.statement_day, card.due_days);
+            const dueDays = effectiveDueDays(card.due_days);
             return (
             <div key={card.id} className={`wallet-item${editing?.id === card.id ? " is-editing" : ""}`}>
               <Link href={`/accounts/${card.id}`} className="wallet-card-link">
@@ -67,7 +69,7 @@ export default async function AccountsPage({
               </Link>
               {card.card_type === "credit" && card.statement_day && days.length > 0 && (
                 <p className="muted small wallet-bill">
-                  Statement {ordinal(card.statement_day)} · pays {payDaysLabel(days)}
+                  Statement {ordinal(card.statement_day)} · due +{dueDays} days · pays {payDaysLabel(days)}
                   {card.plan_months && card.plan_months > 1 ? ` · ${card.plan_months}-month plan` : ""}
                 </p>
               )}
@@ -80,9 +82,9 @@ export default async function AccountsPage({
                 </Link>
                 <form action={deleteAccount}>
                   <input type="hidden" name="id" value={card.id} />
-                  <button className="btn danger" aria-label={`Remove ${accountLabel(card)}`}>
+                  <PendingSubmit className="btn danger" pendingLabel="Removing…" aria-label={`Remove ${accountLabel(card)}`}>
                     Remove
-                  </button>
+                  </PendingSubmit>
                 </form>
               </div>
             </div>
@@ -91,7 +93,7 @@ export default async function AccountsPage({
         </div>
         {cards.length === 0 && (
           <p className="muted small" style={{ margin: "12px 0 0" }}>
-            Add a bank card below. For a credit card, set the statement day and the days you pay (15th and 30th, for example).
+            Add a bank card below. For a credit card, set the statement day, days until due, and the days you pay (15th and 30th, for example).
           </p>
         )}
       </section>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout } from "@/app/actions";
+import PendingSubmit from "@/components/PendingSubmit";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const ITEMS = [
@@ -60,7 +61,9 @@ export default function AppNav({ theme }: { theme: "light" | "dark" }) {
         <div className="side-foot">
           <ThemeToggle theme={theme} />
           <form action={logout}>
-            <button className="nav-logout" type="submit">Log out</button>
+            <PendingSubmit className="nav-logout" pendingLabel="Logging out…">
+              Log out
+            </PendingSubmit>
           </form>
         </div>
       </aside>

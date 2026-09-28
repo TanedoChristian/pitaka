@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteTransaction, updateTransaction } from "@/app/actions";
+import PendingSubmit from "@/components/PendingSubmit";
 import TxnForm from "@/components/TxnForm";
 import { getAccounts, getTransaction } from "@/lib/queries";
 
@@ -42,7 +43,9 @@ export default async function EditTransaction({ params }: { params: Promise<{ id
 
       <form action={deleteTransaction}>
         <input type="hidden" name="id" value={txn.id} />
-        <button className="btn danger block">Delete transaction</button>
+        <PendingSubmit className="btn danger block" pendingLabel="Deleting…">
+          Delete transaction
+        </PendingSubmit>
       </form>
     </>
   );

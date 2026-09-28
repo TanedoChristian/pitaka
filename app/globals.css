@@ -448,7 +448,8 @@ h2 { font-size: 0.95rem; font-weight: 650; }
   width: 18px; height: 18px; color: var(--muted); pointer-events: none;
 }
 .activity-search input { padding-left: 40px; }
-.activity-tools-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.activity-tools-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.activity-tools-row .btn { grid-column: 1 / -1; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .chip-x {
   display: inline-flex; align-items: center; gap: 6px;
@@ -560,7 +561,14 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .btn.primary:hover { filter: none; background: var(--accent); opacity: 0.92; }
 .btn.danger { color: var(--bad); }
 .btn.block { width: 100%; }
+.btn:disabled, .btn[aria-busy="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn.primary:disabled:hover, .btn.primary[aria-busy="true"]:hover { opacity: 0.55; }
 .form { display: grid; gap: 14px; }
+.account-fields { display: grid; gap: 14px; border: 0; margin: 0; padding: 0; min-width: 0; }
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .card > *, .form > * { min-width: 0; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); font-weight: 500; }
@@ -829,13 +837,13 @@ ol.steps a { color: var(--accent); font-weight: 600; }
   .activity-stat { padding: 16px 18px; }
   .activity-stat .v { font-size: 1.35rem; }
   .activity-tools {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) minmax(160px, 220px) auto;
     align-items: center;
     padding: 14px 16px;
   }
   .activity-tools-row { display: contents; }
   .activity-tools .chips { grid-column: 1 / -1; }
-  .activity-tools .btn { min-width: 96px; }
+  .activity-tools .btn { min-width: 96px; grid-column: auto; }
   .ledger-head { padding: 18px 20px 10px; }
   .ledger-cols {
     display: grid;

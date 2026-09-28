@@ -9,7 +9,7 @@ export type BillingCycle = {
   /** Statement date (last day of the cycle). */
   statement: string;
   end: string;
-  /** Last pay day in the first round of terms after this statement. */
+  /** Bank due date: statement + dueDays. Pay days after this are overdue. */
   due: string;
 };
 
@@ -90,6 +90,14 @@ export function payDaysLabel(days: number[]) {
   return `the ${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
 }
 
+export function effectiveDueDays(dueDays?: number | null) {
+  return dueDays && dueDays > 0 ? dueDays : 20;
+}
+
+export function bankDueDate(statement: string, dueDays?: number | null) {
+  return addCalendarDays(statement, effectiveDueDays(dueDays));
+}
+
 /** Infer a single pay day from the old “statement + N days” due date. */
 export function payDaysFromDue(statementDay: number, dueDays: number) {
   const due = addCalendarDays(statementDateOn(2026, 1, statementDay), dueDays);
@@ -131,34 +139,65 @@ export function nextPayDates(after: string, payDays: number[], count: number) {
   return out;
 }
 
-export function cycleFromStatement(statement: string, statementDay: number, payDays: number[]): BillingCycle {
+/**
+ * Pay dates after this statement that are still on or before the bank due date.
+ * If every pay day is already overdue, pay in full on the due date.
+ */
+export function onTimePayDates(statement: string, payDays: number[], dueDays?: number | null): string[] {
+  const due = bankDueDate(statement, dueDays);
+  const days = normalizePayDays(payDays);
+  if (!days.length) return [due];
+  const dates = nextPayDates(statement, days, days.length).filter((d) => d <= due);
+  return dates.length ? dates : [due];
+}
+
+export function cycleFromStatement(
+  statement: string,
+  statementDay: number,
+  payDays: number[],
+  dueDays?: number | null,
+): BillingCycle {
   const start = addCalendarDays(previousStatement(statement, statementDay), 1);
-  const round = Math.max(1, normalizePayDays(payDays).length);
-  const due = nextPayDates(statement, payDays, round).at(-1) ?? addCalendarDays(statement, 20);
-  return { start, statement, end: statement, due };
+  return { start, statement, end: statement, due: bankDueDate(statement, dueDays) };
 }
 
 /** Billing cycle whose statement date includes this calendar day. */
-export function cycleForDate(ymd: string, statementDay: number, payDays: number[]): BillingCycle {
+export function cycleForDate(
+  ymd: string,
+  statementDay: number,
+  payDays: number[],
+  dueDays?: number | null,
+): BillingCycle {
   const { y, m, d } = parseYmd(ymd);
   const thisMonth = statementDateOn(y, m, statementDay);
   const thisDay = Number(thisMonth.slice(8));
   const statement = d <= thisDay ? thisMonth : shiftStatement(thisMonth, statementDay, 1);
-  return cycleFromStatement(statement, statementDay, payDays);
+  return cycleFromStatement(statement, statementDay, payDays, dueDays);
 }
 
 /**
- * Statement to show first: the one still in its first-month pay window, otherwise the
- * open (not-yet-billed) cycle.
+ * Statement to show first: the one still in its pay window (up to the bank due date),
+ * otherwise the open (not-yet-billed) cycle.
  */
-export function defaultCycle(today: string, statementDay: number, payDays: number[]): BillingCycle {
-  const open = cycleForDate(today, statementDay, payDays);
-  const prev = cycleFromStatement(previousStatement(open.statement, statementDay), statementDay, payDays);
+export function defaultCycle(
+  today: string,
+  statementDay: number,
+  payDays: number[],
+  dueDays?: number | null,
+): BillingCycle {
+  const open = cycleForDate(today, statementDay, payDays, dueDays);
+  const prev = cycleFromStatement(previousStatement(open.statement, statementDay), statementDay, payDays, dueDays);
   return today <= prev.due ? prev : open;
 }
 
-export function shiftCycle(cycle: BillingCycle, statementDay: number, payDays: number[], delta: number): BillingCycle {
-  return cycleFromStatement(shiftStatement(cycle.statement, statementDay, delta), statementDay, payDays);
+export function shiftCycle(
+  cycle: BillingCycle,
+  statementDay: number,
+  payDays: number[],
+  delta: number,
+  dueDays?: number | null,
+): BillingCycle {
+  return cycleFromStatement(shiftStatement(cycle.statement, statementDay, delta), statementDay, payDays, dueDays);
 }
 
 /** Equal peso splits; leftover centavos land on the last term so they sum exactly. */
@@ -174,12 +213,17 @@ export function paymentSchedule(opts: {
   total: number;
   planMonths: number;
   statement: string;
+  statementDay?: number;
   payDays: number[];
+  dueDays?: number | null;
 }): PaymentTerm[] {
-  const days = normalizePayDays(opts.payDays);
   const months = Math.max(1, opts.planMonths);
-  const count = months * Math.max(1, days.length);
-  const dates = nextPayDates(opts.statement, days, count);
+  const statementDay = opts.statementDay ?? parseYmd(opts.statement).d;
+  const dates: string[] = [];
+  for (let i = 0; i < months; i++) {
+    const stmt = shiftStatement(opts.statement, statementDay, i);
+    dates.push(...onTimePayDates(stmt, opts.payDays, opts.dueDays));
+  }
   return splitAmount(opts.total, dates.length).map((amount, i) => ({
     term: i + 1,
     due: dates[i]!,
@@ -218,10 +262,22 @@ function inCycle(ymd: string, cycle: BillingCycle) {
   return ymd >= cycle.start && ymd <= cycle.end;
 }
 
+function scheduleOpts(
+  total: number,
+  planMonths: number,
+  statement: string,
+  statementDay: number,
+  payDays: number[],
+  dueDays?: number | null,
+) {
+  return { total, planMonths, statement, statementDay, payDays, dueDays };
+}
+
 export function statementBill(opts: {
   cycle: BillingCycle;
   statementDay: number;
   payDays: number[];
+  dueDays?: number | null;
   planMonths: number;
   txns: BillCharge[];
 }): StatementBill {
@@ -239,13 +295,10 @@ export function statementBill(opts: {
     }
     const own = t.planMonths != null && t.planMonths > 1 ? t.planMonths : null;
     const months = own ?? plan;
-    const txnCycle = cycleForDate(t.occurredOn, opts.statementDay, payDays);
-    const terms = paymentSchedule({
-      total: t.amount,
-      planMonths: months,
-      statement: txnCycle.statement,
-      payDays,
-    });
+    const txnCycle = cycleForDate(t.occurredOn, opts.statementDay, payDays, opts.dueDays);
+    const terms = paymentSchedule(
+      scheduleOpts(t.amount, months, txnCycle.statement, opts.statementDay, payDays, opts.dueDays),
+    );
     const thisDue = terms.filter((p) => p.due <= opts.cycle.due && p.due >= txnCycle.statement).reduce((a, p) => a + p.amount, 0);
     dueThisStatement += thisDue;
 
@@ -264,20 +317,14 @@ export function statementBill(opts: {
   const usedOwn = extras.length > 0;
   const schedule = usedOwn
     ? mergeSchedules([
-        ...paymentSchedule({
-          total: inheritedNet,
-          planMonths: plan,
-          statement: opts.cycle.statement,
-          payDays,
-        }),
+        ...paymentSchedule(
+          scheduleOpts(inheritedNet, plan, opts.cycle.statement, opts.statementDay, payDays, opts.dueDays),
+        ),
         ...extras.flatMap((c) => c.terms),
       ])
-    : paymentSchedule({
-        total: payInFull,
-        planMonths: plan,
-        statement: opts.cycle.statement,
-        payDays,
-      });
+    : paymentSchedule(
+        scheduleOpts(payInFull, plan, opts.cycle.statement, opts.statementDay, payDays, opts.dueDays),
+      );
 
   const firstRound = schedule.filter((t) => t.due <= opts.cycle.due).reduce((a, t) => a + t.amount, 0);
 

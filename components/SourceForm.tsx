@@ -14,7 +14,7 @@ export default function SourceForm() {
         required
         aria-label="Email from"
       />
-      <button className="btn primary" disabled={pending}>
+      <button className="btn primary" disabled={pending} aria-busy={pending}>
         {pending ? "Adding…" : "Add"}
       </button>
       {error && <p className="error" role="alert">{error}</p>}

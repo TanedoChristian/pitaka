@@ -37,6 +37,7 @@ export default function AccountForm({ account }: { account?: Account }) {
       />
 
       <div className="form">
+        <fieldset disabled={pending} className="account-fields">
         <label>
           Bank
           <select
@@ -126,24 +127,37 @@ export default function AccountForm({ account }: { account?: Account }) {
 
         {cardType === "credit" && (
           <>
-            <label>
-              Statement date
-              <select name="statement_day" defaultValue={account?.statement_day ? String(account.statement_day) : ""} required>
-                <option value="" disabled>
-                  Day of month
-                </option>
-                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-                  <option key={d} value={d}>
-                    {ordinal(d)} of every month
+            <div className="grid-2">
+              <label>
+                Statement date
+                <select name="statement_day" defaultValue={account?.statement_day ? String(account.statement_day) : ""} required>
+                  <option value="" disabled>
+                    Day of month
                   </option>
-                ))}
-              </select>
-            </label>
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                      {ordinal(d)} of every month
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Days until due
+                <input
+                  name="due_days"
+                  type="number"
+                  min={1}
+                  max={45}
+                  defaultValue={account?.due_days && account.due_days > 0 ? account.due_days : 20}
+                  required
+                />
+              </label>
+            </div>
             <PayDaysField initial={effectivePayDays(account?.pay_days, account?.statement_day, account?.due_days)} />
             <label>
               Payment plan
               <select name="plan_months" defaultValue={String(account?.plan_months && account.plan_months > 1 ? account.plan_months : 1)}>
-                <option value="1">Pay this cycle (split across pay days)</option>
+                <option value="1">Pay this cycle (split across on-time pay days)</option>
                 <option value="3">3 months</option>
                 <option value="6">6 months</option>
                 <option value="9">9 months</option>
@@ -153,14 +167,15 @@ export default function AccountForm({ account }: { account?: Account }) {
               </select>
             </label>
             <p className="small muted" style={{ margin: 0 }}>
-              A 2nd-of-month statement with pay days on the 15th and 30th splits what you owe across those dates. A 3-month plan is six payments.
+              Due date is the statement plus those days. Pay days after that are skipped so the statement is paid in full on time — a 2nd-of-month statement due in 20 days with pay days on the 15th and 30th is paid in full on the 15th.
             </p>
           </>
         )}
 
-        <button className="btn primary block" disabled={pending}>
+        <button className="btn primary block" disabled={pending} aria-busy={pending}>
           {pending ? (account ? "Saving…" : "Adding…") : account ? "Save card" : "Add card"}
         </button>
+        </fieldset>
         {error && (
           <p className="error" role="alert">
             {error}

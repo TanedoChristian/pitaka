@@ -49,11 +49,12 @@ export function parseBpiEmail({
   if (!amountMatch) return null;
   const { amount, index } = amountMatch;
 
-  const inAt = text.search(IN_RE);
-  const outAt = text.search(OUT_RE);
   let direction: Direction | null = null;
-  if (inAt >= 0 && (outAt < 0 || inAt < outAt)) direction = "in";
-  else if (outAt >= 0) direction = "out";
+  if (isIncoming(subject, text)) direction = "in";
+  else {
+    const outAt = text.search(OUT_RE);
+    if (outAt >= 0) direction = "out";
+  }
 
   // Look for the counterparty near the amount first, then anywhere.
   const around = text.slice(Math.max(0, index - 40), index + 160);
@@ -95,9 +96,11 @@ function parseDetailsTable(subject: string, text: string): ParsedEmail | null {
   const amount = amountStr ? parseAmount(amountStr) : null;
   if (!amount) return null;
 
-  // "Transfer From: XXXX-XXXX-882 (SAVINGS ACCOUNT)" = money left your account.
+  // Incoming alerts first. "Transfer From: XXXX… (SAVINGS)" = money left your account.
   const fromYours = !!f["Transfer From"] && /x{2,}|\*{2,}|savings|checking|account/i.test(f["Transfer From"]);
-  const direction: Direction | null = fromYours || /transfer|payment/i.test(subject) ? "out" : null;
+  let direction: Direction | null = null;
+  if (isIncoming(subject, text)) direction = "in";
+  else if (fromYours || /transfer|payment/i.test(subject)) direction = "out";
 
   const bank = f["Bank Name"] || f["Biller"] || f["Merchant"] || null;
   const to = f["Account Name"] || f["Transfer To"] || null;
@@ -147,6 +150,15 @@ function extractFields(text: string, labels: string[]) {
     if (value) out[h.label] = value;
   });
   return out;
+}
+
+/** "Incoming fund transfer" / "credited" / etc. — never treat these as expenses. */
+function isIncoming(subject: string, text: string) {
+  if (/\bincoming\b/i.test(subject) || IN_RE.test(subject)) return true;
+  const inAt = text.search(IN_RE);
+  if (inAt < 0) return false;
+  const outAt = text.search(OUT_RE);
+  return outAt < 0 || inAt < outAt;
 }
 
 function parseAmount(s: string) {

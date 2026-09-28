@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { normalizePayDays, ordinal } from "@/lib/billing";
 
 const MAX_DAYS = 6;
@@ -14,6 +15,7 @@ export default function PayDaysField({
   initial?: number[] | null;
   onChange?: (days: number[]) => void;
 }) {
+  const { pending } = useFormStatus();
   const [days, setDays] = useState(() => {
     const n = normalizePayDays(initial ?? []);
     return n.length ? n : [15, 30];
@@ -47,7 +49,7 @@ export default function PayDaysField({
     <fieldset className="pay-days">
       <div className="spread">
         <legend>Pay days each month</legend>
-        <button type="button" className="btn" onClick={addDay} disabled={days.length >= MAX_DAYS}>
+        <button type="button" className="btn" onClick={addDay} disabled={pending || days.length >= MAX_DAYS}>
           Add day
         </button>
       </div>
@@ -55,7 +57,7 @@ export default function PayDaysField({
         {days.map((d, i) => (
           <label key={`${d}-${i}`}>
             <span className="vh">Pay day {i + 1}</span>
-            <select name={name} value={d} onChange={(e) => setAt(i, Number(e.target.value))}>
+            <select name={name} value={d} onChange={(e) => setAt(i, Number(e.target.value))} disabled={pending}>
               {Array.from({ length: 31 }, (_, n) => n + 1).map((day) => (
                 <option key={day} value={day}>
                   {ordinal(day)}
@@ -63,7 +65,7 @@ export default function PayDaysField({
               ))}
             </select>
             {days.length > 1 && (
-              <button type="button" className="btn" onClick={() => removeAt(i)} aria-label={`Remove ${ordinal(d)}`}>
+              <button type="button" className="btn" onClick={() => removeAt(i)} disabled={pending} aria-label={`Remove ${ordinal(d)}`}>
                 Remove
               </button>
             )}
@@ -71,7 +73,7 @@ export default function PayDaysField({
         ))}
       </div>
       <p className="small muted" style={{ margin: 0 }}>
-        Split the statement across these days — e.g. the 15th and 30th. Short months clamp the 29th–31st to the last day.
+        Split the statement across these days that fall on or before the due date — e.g. the 15th and 30th. Short months clamp the 29th–31st to the last day.
       </p>
     </fieldset>
   );

@@ -2,6 +2,7 @@ import { paymentChoices } from "@/lib/banks";
 import type { Account, Txn } from "@/lib/db";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { toLocalInput } from "@/lib/format";
+import PendingSubmit from "@/components/PendingSubmit";
 import TxnAccountFields from "@/components/TxnAccountFields";
 
 /** Shared add/edit form. Rendered on the server; posts to a server action. */
@@ -91,7 +92,9 @@ export default function TxnForm({
         </label>
       )}
 
-      <button className="btn primary block">{submitLabel}</button>
+      <PendingSubmit className="btn primary block" pendingLabel={submitLabel === "Save" ? "Saving…" : "Adding…"}>
+        {submitLabel}
+      </PendingSubmit>
     </form>
   );
 }

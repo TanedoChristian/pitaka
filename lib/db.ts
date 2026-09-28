@@ -183,6 +183,9 @@ export type Txn = {
   account: string | null;
   account_id: number | null;
   account_bank: string | null;
+  account_nickname: string | null;
+  account_card_type: string | null;
+  account_last4: string | null;
   source: string;
   raw: string | null;
   needs_review: boolean;

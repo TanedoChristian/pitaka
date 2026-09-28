@@ -9,6 +9,7 @@ const IN_MONTH = (alias: string, p: number) =>
 const monthDay = (month: string) => `${month}-01`;
 const TXN_COLS = `t.id::int as id, t.occurred_at, t.amount::float8 as amount, t.direction, t.description,
   t.merchant, t.category, t.account, t.account_id::int as account_id, a.bank as account_bank,
+  a.nickname as account_nickname, a.card_type as account_card_type, a.last4 as account_last4,
   t.source, t.raw, t.needs_review, t.plan_months::int as plan_months`;
 const TXN_FROM = `transactions t left join accounts a on a.id = t.account_id`;
 const ACCOUNT_COLS = `id::int as id, bank, card_type, nickname, last4, keyword,
@@ -50,6 +51,7 @@ export async function listTransactions(opts: {
   month?: string;
   category?: string;
   search?: string;
+  accountId?: number;
   review?: boolean;
   limit?: number;
 }) {
@@ -66,6 +68,10 @@ export async function listTransactions(opts: {
   if (opts.search) {
     params.push(`%${opts.search}%`);
     where.push(`(t.description ilike $${params.length} or t.merchant ilike $${params.length})`);
+  }
+  if (opts.accountId && Number.isInteger(opts.accountId) && opts.accountId > 0) {
+    params.push(opts.accountId);
+    where.push(`t.account_id = $${params.length}`);
   }
   if (opts.review) where.push(`(t.needs_review or t.category = 'Uncategorized')`);
   params.push(opts.limit ?? 500);

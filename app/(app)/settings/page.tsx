@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { addRule, deleteRule, deleteSource, logout } from "@/app/actions";
+import PendingSubmit from "@/components/PendingSubmit";
 import SourceForm from "@/components/SourceForm";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
@@ -49,7 +50,9 @@ export default async function Settings() {
                 </div>
                 <form action={deleteSource}>
                   <input type="hidden" name="id" value={s.id} />
-                  <button className="btn danger" aria-label={`Remove ${s.sender}`}>Remove</button>
+                  <PendingSubmit className="btn danger" pendingLabel="Removing…" aria-label={`Remove ${s.sender}`}>
+                    Remove
+                  </PendingSubmit>
                 </form>
               </li>
             ))}
@@ -104,7 +107,9 @@ export default async function Settings() {
               <option key={c}>{c}</option>
             ))}
           </select>
-          <button className="btn" style={{ gridColumn: "1 / -1" }}>Add rule</button>
+          <PendingSubmit className="btn" style={{ gridColumn: "1 / -1" }} pendingLabel="Adding…">
+            Add rule
+          </PendingSubmit>
         </form>
         {rules.length > 0 && (
           <ul className="rule-list">
@@ -116,7 +121,9 @@ export default async function Settings() {
                 </div>
                 <form action={deleteRule}>
                   <input type="hidden" name="id" value={r.id} />
-                  <button className="btn danger" aria-label={`Delete rule ${r.keyword}`}>Remove</button>
+                  <PendingSubmit className="btn danger" pendingLabel="Removing…" aria-label={`Delete rule ${r.keyword}`}>
+                    Remove
+                  </PendingSubmit>
                 </form>
               </li>
             ))}
@@ -125,7 +132,9 @@ export default async function Settings() {
       </section>
 
       <form action={logout}>
-        <button className="btn block">Log out</button>
+        <PendingSubmit className="btn block" pendingLabel="Logging out…">
+          Log out
+        </PendingSubmit>
       </form>
     </>
   );

@@ -1,10 +1,23 @@
 import Link from "next/link";
-import { bankLabel } from "@/lib/banks";
+import { accountLabel } from "@/lib/banks";
 import type { Txn } from "@/lib/db";
 import { dayKey, formatDay, formatPeso, formatTime, shortMerchant } from "@/lib/format";
 
 function label(t: Txn) {
   return t.merchant || t.description || "(no description)";
+}
+
+function cardLabel(t: Txn) {
+  if (t.account_bank) {
+    return accountLabel({
+      bank: t.account_bank,
+      card_type: t.account_card_type ?? "debit",
+      nickname: t.account_nickname,
+      last4: t.account_last4,
+    });
+  }
+  if (t.account) return `··${t.account}`;
+  return null;
 }
 
 export default function TxnList({
@@ -24,6 +37,7 @@ export default function TxnList({
         {txns.map((t) => {
           const review = t.needs_review || t.category === "Uncategorized";
           const name = label(t);
+          const card = cardLabel(t);
           return (
             <li key={t.id}>
               <Link href={`/transactions/${t.id}`} className="recent-row" title={name}>
@@ -34,6 +48,7 @@ export default function TxnList({
                       {review && t.needs_review ? "Check this" : t.category}
                     </span>
                     <span>{formatDay(t.occurred_at)}</span>
+                    {card && <span>{card}</span>}
                   </span>
                 </span>
                 <span className={t.direction === "in" ? "txn-amt in" : "txn-amt"}>
@@ -76,6 +91,7 @@ export default function TxnList({
             {g.items.map((t) => {
               const review = t.needs_review || t.category === "Uncategorized";
               const name = label(t);
+              const card = cardLabel(t);
               const mark = shortMerchant(name).replace(/[^A-Za-z0-9]/g, "").slice(0, 1).toUpperCase() || "?";
               return (
                 <li key={t.id}>
@@ -90,8 +106,7 @@ export default function TxnList({
                           {review && t.needs_review ? "Check this" : t.category}
                         </span>
                         <span>{formatTime(t.occurred_at)}</span>
-                        {t.account_bank && <span>{bankLabel(t.account_bank)}</span>}
-                        {!t.account_bank && t.account && <span>··{t.account}</span>}
+                        {card && <span>{card}</span>}
                         {t.source === "manual" && <span>manual</span>}
                       </span>
                     </span>

@@ -28,6 +28,40 @@ test("incoming credit ignores the balance amount", () => {
   assert.equal(categorize(`${p?.description} ${p?.merchant}`, "in", []), "Salary");
 });
 
+test("incoming fund transfer is income, not an expense", () => {
+  const freeform = parseBpiEmail({
+    subject: "Incoming Fund Transfer",
+    body: "You have received an Incoming Fund Transfer of PHP 3,500.00 from JUAN DELA CRUZ to your account ending in 8821. Ref no. 4412.",
+  });
+  assert.equal(freeform?.amount, 3500);
+  assert.equal(freeform?.direction, "in");
+  assert.equal(freeform?.account, "8821");
+  assert.match(freeform?.merchant ?? "", /JUAN DELA CRUZ/);
+
+  const table = parseBpiEmail({
+    subject: "Incoming Fund Transfer Confirmation",
+    body: `Dear CHRISTIAN,
+
+You have received an Incoming Fund Transfer with the following details.
+
+Interbank Funds Transfer Transaction Details
+Confirmation Number	1626719248999
+Transaction Date and Time	Friday, Sep 25 2026; 10:05:00 AM (GMT +8)
+Transfer From	JUAN DELA CRUZ
+Transfer To	XXXX-XXXX-882 (SAVINGS ACCOUNT)
+Bank Name	GCash/G-Xchange
+Transfer Amount	PHP 2,000.00
+Service Fee	PHP 0.00
+Total Amount	PHP 2,000.00
+Transfer Service	INSTAPAY
+Transaction Ref No.	303599
+Notes	`,
+  });
+  assert.equal(table?.amount, 2000);
+  assert.equal(table?.direction, "in");
+  assert.equal(categorize(`${table?.description} ${table?.merchant}`, "in", []), "Transfers");
+});
+
 test("bills payment", () => {
   const p = parseBpiEmail({
     subject: "Bills Payment",
