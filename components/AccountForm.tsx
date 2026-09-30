@@ -108,6 +108,17 @@ export default function AccountForm({ account }: { account?: Account }) {
         </div>
 
         <label>
+          Card product <span className="muted">(optional)</span>
+          <input
+            name="product"
+            maxLength={60}
+            defaultValue={account?.product ?? ""}
+            placeholder={cardType === "credit" ? "e.g. Amore Cashback, Rewards Visa" : "e.g. Saver Plus"}
+            autoComplete="off"
+          />
+        </label>
+
+        <label>
           Email keyword
           <input
             name="keyword"

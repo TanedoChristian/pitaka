@@ -1,5 +1,6 @@
 import { getBank } from "./banks";
 import { query, type Account, type EmailSource, type Rule, type Txn } from "./db";
+import type { GrowKind, GrowProfile, GrowReport } from "./grow";
 import { DEFAULT_SENDERS } from "./sources";
 
 const MONTH_LABEL = `to_char(t.occurred_at at time zone 'Asia/Manila', 'YYYY-MM')`;
@@ -13,7 +14,7 @@ const TXN_COLS = `t.id::int as id, t.occurred_at, t.amount::float8 as amount, t.
   t.source, t.raw, t.needs_review, t.plan_months::int as plan_months, t.self_transfer`;
 const TXN_FROM = `transactions t left join accounts a on a.id = t.account_id`;
 const ACCOUNT_COLS = `id::int as id, bank, card_type, nickname, last4, keyword,
-  statement_day::int as statement_day, due_days::int as due_days, plan_months::int as plan_months, pay_days`;
+  statement_day::int as statement_day, due_days::int as due_days, plan_months::int as plan_months, pay_days, product`;
 /** Real spending — wallet top-ups marked "to myself" are excluded. */
 const REAL_OUT = `t.direction = 'out' and not t.self_transfer`;
 
@@ -235,7 +236,7 @@ export type AccountSpend = Account & { spent: number; received: number; count: n
 export function getAccountSpend(month: string) {
   return query<AccountSpend>(
     `select a.id::int as id, a.bank, a.card_type, a.nickname, a.last4, a.keyword,
-            a.statement_day::int as statement_day, a.due_days::int as due_days, a.plan_months::int as plan_months, a.pay_days,
+            a.statement_day::int as statement_day, a.due_days::int as due_days, a.plan_months::int as plan_months, a.pay_days, a.product,
             coalesce(sum(t.amount) filter (where t.direction = 'out' and not t.self_transfer), 0)::float8 as spent,
             coalesce(sum(t.amount) filter (where t.direction = 'in'), 0)::float8 as received,
             count(t.id) filter (where t.id is not null and (t.direction = 'in' or not t.self_transfer))::int as count
@@ -285,5 +286,126 @@ export function getPaymentCompletions(accountId: number, statement: string) {
       where account_id = $1 and statement = $2::date
       order by due_date`,
     [accountId, statement],
+  );
+}
+
+// ---------- grow ----------
+
+export async function getLatestReport<K extends GrowKind>(kind: K) {
+  const [row] = await query<GrowReport<K>>(
+    `select id::int as id, kind, generated_at, source, data
+       from grow_reports where kind = $1
+      order by generated_at desc, id desc limit 1`,
+    [kind],
+  );
+  return row ?? null;
+}
+
+export async function getReport<K extends GrowKind>(kind: K, id: number) {
+  const [row] = await query<GrowReport<K>>(
+    `select id::int as id, kind, generated_at, source, data from grow_reports where kind = $1 and id = $2`,
+    [kind, id],
+  );
+  return row ?? null;
+}
+
+export function listReportDates(kind: GrowKind, limit = 12) {
+  return query<{ id: number; generated_at: Date; headline: string | null; mood: string | null }>(
+    `select id::int as id, generated_at, data->>'headline' as headline, data->>'mood' as mood
+       from grow_reports where kind = $1
+      order by generated_at desc, id desc limit $2`,
+    [kind, limit],
+  );
+}
+
+export async function saveReport(kind: GrowKind, data: unknown, source: string) {
+  const [row] = await query<{ id: number }>(
+    `insert into grow_reports (kind, data, source) values ($1, $2::jsonb, $3) returning id::int as id`,
+    // postgres.js serializes objects for jsonb itself; a pre-stringified value would be stored as a JSON string.
+    [kind, data, source],
+  );
+  // Keep the last 60 snapshots per kind; older ones are history nobody reads.
+  await query(
+    `delete from grow_reports where kind = $1 and id not in (
+       select id from grow_reports where kind = $1 order by generated_at desc, id desc limit 60)`,
+    [kind],
+  );
+  return row.id;
+}
+
+export async function getProfile() {
+  const [row] = await query<GrowProfile>(
+    `select city, fuel, watchlist, risk, emergency_saved::float8 as emergency_saved, updated_at
+       from grow_profile where id = 1`,
+  );
+  return row;
+}
+
+export function getBudgets() {
+  return query<{ category: string; monthly: number }>(
+    `select category, monthly::float8 as monthly from budgets order by category`,
+  );
+}
+
+/** Average monthly spend per category over the `n` full months before `month`. */
+export function getCategoryAverages(month: string, n = 3) {
+  return query<{ category: string; avg: number }>(
+    `select t.category, (sum(t.amount) / $2)::float8 as avg
+       from transactions t
+      where ${REAL_OUT}
+        and t.occurred_at >= ($1::date - make_interval(months => $2::int))::timestamp at time zone 'Asia/Manila'
+        and t.occurred_at < $1::timestamp at time zone 'Asia/Manila'
+      group by t.category`,
+    [monthDay(month), n],
+  );
+}
+
+/** Average monthly real spend and income over the `n` full months before `month` (months with data only). */
+export async function getMonthlyAverages(month: string, n = 3) {
+  const [row] = await query<{ spend: number; income: number; months: number }>(
+    `select coalesce(avg(spent), 0)::float8 as spend, coalesce(avg(received), 0)::float8 as income, count(*)::int as months
+       from (
+         select ${MONTH_LABEL} as m,
+                sum(t.amount) filter (where ${REAL_OUT}) as spent,
+                sum(t.amount) filter (where t.direction = 'in' and not t.self_transfer) as received
+           from transactions t
+          where t.occurred_at >= ($1::date - make_interval(months => $2::int))::timestamp at time zone 'Asia/Manila'
+            and t.occurred_at < $1::timestamp at time zone 'Asia/Manila'
+          group by 1
+       ) x`,
+    [monthDay(month), n],
+  );
+  return row;
+}
+
+/** Real outgoing charges in the last `days` days (for recurring and fuel detection). */
+export function getRecentCharges(days = 125) {
+  return query<{ merchant: string; amount: number; occurred_at: Date; category: string; description: string }>(
+    `select coalesce(nullif(trim(t.merchant), ''), t.description) as merchant, t.amount::float8 as amount,
+            t.occurred_at, t.category, t.description
+       from transactions t
+      where ${REAL_OUT} and t.occurred_at >= now() - make_interval(days => $1::int)`,
+    [days],
+  );
+}
+
+/** Top merchants over the last `days` days, for matching card perks. */
+export function getTopMerchantsSince(days = 90, limit = 40) {
+  return query<{ merchant: string; total: number }>(
+    `select coalesce(nullif(trim(t.merchant), ''), t.description) as merchant, sum(t.amount)::float8 as total
+       from transactions t
+      where ${REAL_OUT} and t.occurred_at >= now() - make_interval(days => $1::int)
+      group by 1 order by total desc limit $2`,
+    [days, limit],
+  );
+}
+
+export function getCategoriesSince(days = 90) {
+  return query<{ category: string; total: number }>(
+    `select t.category, sum(t.amount)::float8 as total
+       from transactions t
+      where ${REAL_OUT} and t.occurred_at >= now() - make_interval(days => $1::int)
+      group by 1 order by total desc`,
+    [days],
   );
 }

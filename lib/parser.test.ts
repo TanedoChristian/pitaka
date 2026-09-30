@@ -144,6 +144,36 @@ Notes	`,
   assert.equal(p?.occurredAt?.toISOString(), "2026-09-22T07:23:05.000Z");
 });
 
+test("outgoing InstaPay stays out even when BPI footer says credited", () => {
+  const p = parseBpiEmail({
+    subject: "Interbank Funds Transfer Confirmation",
+    body: `Dear CHRISTIAN,
+
+You have successfully submitted your InstaPay Funds Transfer request with the following details.
+
+Interbank Funds Transfer Transaction Details
+Confirmation Number	1627214765923
+Transaction Date and Time	Tuesday, Sep 29 2026; 02:48:13 PM (GMT +8)
+Transfer From	XXXX-XXXX-882 (SAVINGS ACCOUNT)
+Transfer To	DWXXXXX3JDNWHNTPY
+Bank Name	GCash/G-Xchange
+Transfer Amount	PHP 60.00
+Service Fee	PHP 0.00
+Total Amount	PHP 60.00
+Transfer Service	INSTAPAY
+Transaction Ref No.	120781
+Notes	
+*Important Reminders:*
+
+Successful transactions will be credited real time. Should there be any delay in the crediting, and the money is not yet credited after 2 banking days, please call BPI.
+`,
+  });
+  assert.equal(p?.amount, 60);
+  assert.equal(p?.direction, "out");
+  assert.equal(p?.description, "Interbank Funds Transfer Confirmation");
+  assert.equal(p?.merchant, "GCash/G-Xchange · DWXXXXX3JDNWHNTPY");
+});
+
 test("table email: total includes the service fee", () => {
   const p = parseBpiEmail({
     subject: "Interbank Funds Transfer Confirmation",

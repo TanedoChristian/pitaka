@@ -117,6 +117,39 @@ const SCHEMA = [
        revoke all on payment_completions from anon, authenticated;
      end if;
    end $$`,
+  // ---- Grow: research snapshots pushed by the local agent (or refreshed in-app) ----
+  `alter table accounts add column if not exists product text`,
+  `create table if not exists grow_reports (
+    id           bigserial primary key,
+    kind         text not null check (kind in ('market','perks','fuel','news')),
+    generated_at timestamptz not null default now(),
+    data         jsonb not null,
+    source       text not null default 'agent'
+  )`,
+  `create index if not exists grow_reports_kind_idx on grow_reports (kind, generated_at desc)`,
+  `create table if not exists grow_profile (
+    id              int primary key default 1 check (id = 1),
+    city            text,
+    fuel            text not null default 'Gasoline (RON 91)',
+    watchlist       text not null default 'PSEi, BDO, SM, ALI, JFC, S&P 500, Nasdaq, USD/PHP, BTC, ETH',
+    risk            text not null default 'moderate' check (risk in ('conservative','moderate','aggressive')),
+    emergency_saved numeric(14,2) not null default 0,
+    updated_at      timestamptz not null default now()
+  )`,
+  `insert into grow_profile (id) values (1) on conflict (id) do nothing`,
+  `create table if not exists budgets (
+    category   text primary key,
+    monthly    numeric(14,2) not null check (monthly > 0),
+    created_at timestamptz not null default now()
+  )`,
+  `alter table grow_reports enable row level security`,
+  `alter table grow_profile enable row level security`,
+  `alter table budgets enable row level security`,
+  `do $$ begin
+     if exists (select 1 from pg_roles where rolname = 'anon') then
+       revoke all on grow_reports, grow_profile, budgets from anon, authenticated;
+     end if;
+   end $$`,
 ];
 
 type Sql = ReturnType<typeof postgres>;
@@ -234,6 +267,7 @@ export type Account = {
   due_days: number | null;
   plan_months: number | null;
   pay_days: number[] | null;
+  product: string | null;
 };
 
 /** Apply the schema now and close the connection (used by `npm run db:migrate`). */

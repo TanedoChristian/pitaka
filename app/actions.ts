@@ -6,9 +6,11 @@ import { redirect } from "next/navigation";
 import { checkPassword, requireAuth, SESSION_COOKIE, SESSION_MAX_AGE, sessionToken } from "@/lib/auth";
 import { getBank, isBankId, normalizeKeyword } from "@/lib/banks";
 import { isPlanMonths, normalizePayDays } from "@/lib/billing";
-import { ALL_CATEGORIES } from "@/lib/categories";
+import { ALL_CATEGORIES, EXPENSE_CATEGORIES } from "@/lib/categories";
 import { query } from "@/lib/db";
-import { attachEmailsToCards } from "@/lib/queries";
+import { FUEL_TYPES, RISK_LEVELS } from "@/lib/grow";
+import { fetchNews } from "@/lib/news";
+import { attachEmailsToCards, saveReport } from "@/lib/queries";
 import { normalizeSender } from "@/lib/sources";
 
 // ---------- auth ----------
@@ -251,6 +253,7 @@ function readCardForm(form: FormData) {
     keyword,
     last4,
     nickname: String(form.get("nickname") ?? "").trim().slice(0, 40) || null,
+    product: String(form.get("product") ?? "").trim().slice(0, 60) || null,
     statementDay,
     dueDays,
     payDays,
@@ -271,10 +274,10 @@ export async function addAccount(_prev: string | null, form: FormData): Promise<
   if (!t.ok) return t.error;
 
   const [row] = await query<{ id: number }>(
-    `insert into accounts (bank, card_type, nickname, last4, keyword, statement_day, due_days, plan_months, pay_days)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9::int[])
+    `insert into accounts (bank, card_type, nickname, last4, keyword, statement_day, due_days, plan_months, pay_days, product)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9::int[], $10)
      returning id::int as id`,
-    [t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays],
+    [t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays, t.product],
   );
 
   await rememberSender(t.keyword);
@@ -295,10 +298,10 @@ export async function updateAccount(_prev: string | null, form: FormData): Promi
   const rows = await query(
     `update accounts
         set bank = $2, card_type = $3, nickname = $4, last4 = $5, keyword = $6,
-            statement_day = $7, due_days = $8, plan_months = $9, pay_days = $10::int[]
+            statement_day = $7, due_days = $8, plan_months = $9, pay_days = $10::int[], product = $11
       where id = $1 and bank <> 'cash'
       returning id`,
-    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays],
+    [id, t.bank, t.cardType, t.nickname, t.last4, t.keyword, t.statementDay, t.dueDays, t.planMonths, t.payDays, t.product],
   );
   if (!rows.length) return "Card not found.";
 
@@ -385,4 +388,70 @@ export async function deleteAccount(form: FormData) {
   await requireAuth();
   await query(`delete from accounts where id = $1 and bank <> 'cash'`, [Number(form.get("id"))]);
   revalidatePath("/", "layout");
+}
+
+// ---------- grow ----------
+
+export async function saveGrowProfile(form: FormData) {
+  await requireAuth();
+  const fields: string[] = [];
+  const params: unknown[] = [];
+  const set = (col: string, v: unknown) => {
+    params.push(v);
+    fields.push(`${col} = $${params.length}`);
+  };
+  if (form.has("city")) set("city", String(form.get("city") ?? "").trim().slice(0, 80) || null);
+  if (form.has("fuel")) {
+    const fuel = String(form.get("fuel") ?? "");
+    if ((FUEL_TYPES as readonly string[]).includes(fuel)) set("fuel", fuel);
+  }
+  if (form.has("watchlist")) {
+    const list = String(form.get("watchlist") ?? "")
+      .split(/[,\n]/)
+      .map((s) => s.trim().slice(0, 24))
+      .filter(Boolean)
+      .slice(0, 30);
+    if (list.length) set("watchlist", list.join(", "));
+  }
+  if (form.has("risk")) {
+    const risk = String(form.get("risk") ?? "");
+    if ((RISK_LEVELS as readonly string[]).includes(risk)) set("risk", risk);
+  }
+  if (form.has("emergency_saved")) {
+    const saved = Number(String(form.get("emergency_saved") ?? "").replace(/,/g, ""));
+    if (Number.isFinite(saved) && saved >= 0) set("emergency_saved", Math.min(saved, 1e11));
+  }
+  if (!fields.length) return;
+  await query(`update grow_profile set ${fields.join(", ")}, updated_at = now() where id = 1`, params);
+  revalidatePath("/grow", "layout");
+}
+
+export async function saveBudget(form: FormData) {
+  await requireAuth();
+  const category = String(form.get("category") ?? "");
+  const monthly = Number(String(form.get("monthly") ?? "").replace(/,/g, ""));
+  if (!(EXPENSE_CATEGORIES as readonly string[]).includes(category)) return;
+  if (!Number.isFinite(monthly) || monthly <= 0) return;
+  await query(
+    `insert into budgets (category, monthly) values ($1, $2)
+     on conflict (category) do update set monthly = excluded.monthly`,
+    [category, Math.min(monthly, 1e10)],
+  );
+  revalidatePath("/grow");
+}
+
+export async function deleteBudget(form: FormData) {
+  await requireAuth();
+  await query(`delete from budgets where category = $1`, [String(form.get("category") ?? "")]);
+  revalidatePath("/grow");
+}
+
+/** Pull fresh headlines straight from the RSS feeds (no AI notes). */
+export async function refreshNews() {
+  await requireAuth();
+  const items = await fetchNews(40);
+  if (items.length) {
+    await saveReport("news", { as_of: new Date().toISOString(), items }, "rss");
+  }
+  revalidatePath("/grow/news");
 }

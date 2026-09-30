@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { safeEqual, SESSION_COOKIE, sessionToken } from "@/lib/session";
 
-// Guards every page and server action. /api/ingest has its own bearer-secret check.
+// Guards every page and server action. /api/ingest and /api/grow have their own bearer-secret check.
 export function proxy(req: NextRequest) {
   const value = req.cookies.get(SESSION_COOKIE)?.value;
   if (value && safeEqual(value, sessionToken())) return NextResponse.next();
@@ -9,5 +9,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|api/ingest|_next/|icon.svg|manifest.webmanifest|favicon.ico).*)"],
+  matcher: ["/((?!login|api/ingest|api/grow|_next/|icon.svg|manifest.webmanifest|favicon.ico).*)"],
 };

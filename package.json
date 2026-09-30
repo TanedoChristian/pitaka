@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "tsx --test lib/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "agent": "tsx agent/pitaka-agent.ts",
     "db:up": "docker compose -p pitaka up -d",
     "db:down": "docker compose -p pitaka down",
     "db:psql": "docker exec -it pitaka-postgres-1 psql -U postgres",

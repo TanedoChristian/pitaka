@@ -96,10 +96,11 @@ function parseDetailsTable(subject: string, text: string): ParsedEmail | null {
   const amount = amountStr ? parseAmount(amountStr) : null;
   if (!amount) return null;
 
-  // Incoming alerts first. "Transfer From: XXXX… (SAVINGS)" = money left your account.
+  // Table structure wins over body keywords. BPI's legal footer says "will be
+  // credited real time" on every outgoing transfer — that must not flip direction.
   const fromYours = !!f["Transfer From"] && /x{2,}|\*{2,}|savings|checking|account/i.test(f["Transfer From"]);
   let direction: Direction | null = null;
-  if (isIncoming(subject, text)) direction = "in";
+  if (/\bincoming\b/i.test(subject) || IN_RE.test(subject)) direction = "in";
   else if (fromYours || /transfer|payment/i.test(subject)) direction = "out";
 
   const bank = f["Bank Name"] || f["Biller"] || f["Merchant"] || null;
@@ -107,7 +108,8 @@ function parseDetailsTable(subject: string, text: string): ParsedEmail | null {
   const merchant = bank && to ? `${bank} · ${to}` : bank || to;
 
   const account = f["Transfer From"]?.match(/(\d{3,4})\b(?!.*\d)/)?.[1] ?? null;
-  const notes = f["Notes"]?.trim();
+  // Empty Notes still grabs the "*Important Reminders:*" boilerplate that follows.
+  const notes = f["Notes"]?.replace(/\*?Important Reminders\*?:?[\s\S]*$/i, "").trim() || undefined;
   const description = [subject.trim(), notes].filter(Boolean).join(" — ").slice(0, 200);
 
   const occurredAt = parseBpiDate(f["Transaction Date and Time"]);
@@ -155,9 +157,11 @@ function extractFields(text: string, labels: string[]) {
 /** "Incoming fund transfer" / "credited" / etc. — never treat these as expenses. */
 function isIncoming(subject: string, text: string) {
   if (/\bincoming\b/i.test(subject) || IN_RE.test(subject)) return true;
-  const inAt = text.search(IN_RE);
+  // Ignore BPI's disclaimer footer ("Successful transactions will be credited…").
+  const signal = text.split(/\*?Important Reminders\*?:?/i)[0] ?? text;
+  const inAt = signal.search(IN_RE);
   if (inAt < 0) return false;
-  const outAt = text.search(OUT_RE);
+  const outAt = signal.search(OUT_RE);
   return outAt < 0 || inAt < outAt;
 }
 

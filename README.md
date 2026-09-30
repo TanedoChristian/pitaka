@@ -64,6 +64,29 @@ this merchant"* when editing), then built-in keyword guesses in
 representative samples. When a real alert parses wrong, paste it (redacted) into
 [`lib/parser.test.ts`](lib/parser.test.ts), fix the regex, and run `npm test`.
 
+## Grow: insights, markets, card perks, fuel & news
+
+The **Grow** tab turns your spending into coaching:
+
+- **Insights**: a money health score, savings rate, emergency fund meter, budgets
+  with daily pace, subscriptions & bills found in your history, and tips picked
+  for your situation. It's computed from your own transactions, no AI needed.
+- **Markets**: a daily stocks / forex / crypto brief with "what it means for you".
+- **Card perks**: live promos for your BPI / UnionBank cards, matched to where you spend.
+- **Fuel**: this week's price change, cheapest brands in your city, and what
+  switching brands would save you.
+- **News & tips**: PH money headlines (live RSS; the refresh button works without the
+  agent) and a library of habits.
+
+Markets, perks and fuel are researched by a **local agent that runs Claude Code on
+your computer** and posts to `/api/grow` with the same `INGEST_SECRET`. Setup,
+scheduling and costs are in [`agent/README.md`](agent/README.md):
+
+```bash
+cp agent/.env.example agent/.env   # PITAKA_URL + INGEST_SECRET
+npm run agent -- all
+```
+
 ## Local development
 
 Needs Node 20+. Point `DATABASE_URL` in `.env.local` at Supabase, or at a local Postgres
