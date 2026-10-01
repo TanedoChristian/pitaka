@@ -112,7 +112,7 @@ export const FUEL_SCHEMA = {
       type: "object",
       properties: {
         effective: { type: ["string", "null"], description: "YYYY-MM-DD the latest weekly adjustment takes effect" },
-        summary: { type: "string", description: "e.g. 'Gasoline up ₱0.90/L, diesel down ₱0.40/L on Tuesday'" },
+        summary: { type: "string", description: "1-2 short sentences, e.g. 'Gasoline up ₱0.90/L, diesel down ₱0.40/L on Tuesday.'" },
         changes: {
           type: "array",
           items: {

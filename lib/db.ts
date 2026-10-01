@@ -213,12 +213,39 @@ function ensureSchema() {
   return g.__pitakaReady;
 }
 
+/** An untyped SQL literal, so Postgres infers its type exactly like an unbound $n. */
+export function literal(v: unknown): string {
+  if (v === null || v === undefined) return "null";
+  let s: string;
+  if (v instanceof Date) s = v.toISOString();
+  else if (Array.isArray(v))
+    s = `{${v.map((x) => (x === null || x === undefined ? "NULL" : `"${String(x).replace(/["\\]/g, "\\$&")}"`)).join(",")}}`;
+  else if (typeof v === "object") s = JSON.stringify(v);
+  else s = String(v);
+  // E'' escapes backslashes itself, so this is safe whatever standard_conforming_strings is.
+  return `E'${s.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+}
+
+/** Replace $1..$n with literals. */
+export function inline(text: string, params: unknown[]): string {
+  return text.replace(/\$(\d+)/g, (_, n: string) => {
+    const i = Number(n) - 1;
+    if (i < 0 || i >= params.length) throw new Error(`query: no value for $${n}`);
+    return literal(params[i]);
+  });
+}
+
 export async function query<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
   await ensureSchema();
-  return (await getClient().unsafe(text, params as postgres.ParameterOrJSON<never>[])) as unknown as T[];
+  // With prepare: false, postgres.js sends a parameterized query in two round trips
+  // (Parse/Describe/Flush, then Bind/Execute/Sync). On the transaction pooler, a function
+  // frozen or aborted between them leaves the backend stuck mid-statement until
+  // statement_timeout fires, and the 57014 lands on whichever request gets that backend next.
+  // Without bound params, every query is a single message ending in Sync.
+  return (await getClient().unsafe(params.length ? inline(text, params) : text)) as unknown as T[];
 }
 
 export type Direction = "in" | "out";

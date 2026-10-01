@@ -235,11 +235,12 @@ export function sanitizeFuel(raw: unknown): FuelReport | null {
       const p = obj(x);
       return { brand: str(p.brand, 40), product: str(p.product, 40), low: num(p.low), high: num(p.high), area: str(p.area, 80) };
     })
-    .filter((p) => p.brand && (p.low !== null || p.high !== null));
+    // Averages ("All brands (avg)") aren't a place you can fill up.
+    .filter((p) => p.brand && !/\bavg\b|average|all brands/i.test(p.brand) && (p.low !== null || p.high !== null));
   const adv = obj(o.advisory);
   const advisory = {
     effective: ymd(adv.effective),
-    summary: str(adv.summary, 500),
+    summary: str(adv.summary, 900),
     changes: arr(adv.changes, 8)
       .map((x) => ({ product: str(obj(x).product, 40), change: num(obj(x).change) }))
       .filter((c) => c.product),

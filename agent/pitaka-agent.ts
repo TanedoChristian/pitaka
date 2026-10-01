@@ -45,8 +45,10 @@ function loadEnv(file: string) {
     process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2");
   }
 }
+// First file to set a variable wins: agent/.env, then the app's .env, then .env.local.
 loadEnv(join(here, ".env"));
-loadEnv(join(here, "..", ".env.local")); // INGEST_SECRET fallback for local dev
+loadEnv(join(here, "..", ".env"));
+loadEnv(join(here, "..", ".env.local"));
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
@@ -229,5 +231,8 @@ async function main() {
 main().catch((e) => {
   console.error(red(`✗ ${e instanceof Error ? e.message : String(e)}`));
   if (String(e).includes("fetch failed")) console.error(dim(`Is Pitaka running at ${baseUrl}? Set PITAKA_URL in agent/.env.`));
+  if (String(e).includes("EMAXCONNSESSION"))
+    console.error(dim("Supabase session pool is full: set DATABASE_URL on Vercel to the Transaction pooler (port 6543) and redeploy."));
+  if (String(e).includes("HTTP 401")) console.error(dim("INGEST_SECRET doesn't match the one set on Vercel."));
   process.exit(1);
 });

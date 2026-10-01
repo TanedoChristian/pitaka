@@ -64,7 +64,7 @@ test("sanitizeFuel keeps priced rows or an advisory", () => {
   const f = sanitizeFuel({
     city: "Quezon City",
     advisory: { effective: "2026-10-06", summary: "Gasoline +₱0.90", changes: [{ product: "Gasoline", change: "0.90" }] },
-    prices: [{ brand: "Petron", product: "RON 91", low: 58.1, high: "60.40" }, { brand: "Shell" }],
+    prices: [{ brand: "Petron", product: "RON 91", low: 58.1, high: "60.40" }, { brand: "Shell" }, { brand: "All brands (avg)", low: 59 }],
   })!;
   assert.equal(f.prices.length, 1);
   assert.equal(f.prices[0].high, 60.4);

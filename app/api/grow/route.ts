@@ -14,6 +14,17 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Callers already hold the secret, so tell the agent what broke instead of an empty 500. */
+async function withErrors(fn: () => Promise<Response>) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error("/api/grow failed:", e);
+    const err = e as { message?: string; code?: string };
+    return Response.json({ error: err.message ?? String(e), code: err.code ?? null }, { status: 500 });
+  }
+}
+
 function authorized(req: Request) {
   const secret = process.env.INGEST_SECRET;
   const auth = req.headers.get("authorization") ?? "";
@@ -26,6 +37,10 @@ function authorized(req: Request) {
  */
 export async function GET(req: Request) {
   if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  return withErrors(() => context());
+}
+
+async function context() {
   const month = currentMonth();
   const [profile, accounts, averages, categories, merchants, market, perks, fuel, news] = await Promise.all([
     getProfile(),
@@ -65,6 +80,10 @@ export async function GET(req: Request) {
 /** Body: { kind: "market" | "perks" | "fuel" | "news", data: {...} } */
 export async function POST(req: Request) {
   if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  return withErrors(() => save(req));
+}
+
+async function save(req: Request) {
   const body = await req.json().catch(() => null);
   const kind = body?.kind;
   if (!isGrowKind(kind)) return Response.json({ error: "kind must be market, perks, fuel or news" }, { status: 400 });
