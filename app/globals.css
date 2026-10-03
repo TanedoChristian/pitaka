@@ -1213,6 +1213,12 @@ ol.tips li > p:only-of-type { margin-top: 3px; }
 .idea-facts { margin: 0; display: flex; gap: 18px; flex-wrap: wrap; }
 .idea-facts dt { color: var(--muted); }
 .idea-facts dd { margin: 0; font-weight: 650; }
+.idea-tags { display: inline-flex; gap: 6px; align-items: center; }
+.idea-rank { font-weight: 800; font-size: 13px; color: var(--accent); }
+.idea.top { background: var(--accent-soft); border-color: var(--accent); }
+.alloc-bar { display: flex; height: 14px; border-radius: 99px; overflow: hidden; gap: 2px; }
+.alloc-bar span { display: block; height: 100%; }
+.alloc-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: 0; }
 .forecast-next { display: grid; gap: 8px; }
 .forecast-next p { margin: 0; }
 .forecast-next ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }

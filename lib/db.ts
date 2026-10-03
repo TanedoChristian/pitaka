@@ -150,6 +150,12 @@ const SCHEMA = [
        revoke all on grow_reports, grow_profile, budgets from anon, authenticated;
      end if;
    end $$`,
+  // Grow: the agent's "analyze" task stores its forecast as kind 'analysis'.
+  `do $$ begin
+     alter table grow_reports drop constraint if exists grow_reports_kind_check;
+     alter table grow_reports add constraint grow_reports_kind_check
+       check (kind in ('market','perks','fuel','news','analysis'));
+   end $$`,
 ];
 
 type Sql = ReturnType<typeof postgres>;

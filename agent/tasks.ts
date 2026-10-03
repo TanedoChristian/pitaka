@@ -3,6 +3,7 @@
 // in lib/grow.ts, so these schemas guide the model rather than guard the app.
 
 import { EXPENSE_CATEGORIES } from "../lib/categories";
+import type { FuelReport, MarketReport, NewsReport } from "../lib/grow";
 
 export type Context = {
   profile: { city: string | null; fuel: string; watchlist: string; risk: string; emergency_saved: number };
@@ -13,6 +14,12 @@ export type Context = {
     months_of_data: number;
     top_categories_90d: { category: string; total: number }[];
     top_merchants_90d: { merchant: string; total: number }[];
+  };
+  /** Only with GET /api/grow?reports=1: the latest research, which "analyze" works from. */
+  reports?: {
+    market: { generated_at: string; data: MarketReport } | null;
+    fuel: { generated_at: string; data: FuelReport } | null;
+    news: { generated_at: string; data: NewsReport } | null;
   };
 };
 
@@ -38,7 +45,7 @@ const forecast = {
   type: "object",
   properties: {
     asset: { type: "string", description: "e.g. 'Bitcoin (BTC)', 'USD/PHP', 'PSEi', 'Brent crude', 'Gold'" },
-    group: { type: "string", enum: ["Crypto", "Stocks", "Forex", "Commodities", "Rates"] },
+    group: { type: "string", enum: ["Crypto", "Stocks", "Forex", "Commodities", "Rates", "Fuel"] },
     horizon: { type: "string", description: "e.g. 'Next 2 weeks', 'By end of October', 'End of 2026'" },
     direction: { type: "string", enum: ["up", "down", "sideways"] },
     price: { ...nullable("number"), description: "Latest price, same unit as low/high" },
@@ -221,6 +228,62 @@ export const NEWS_SCHEMA = {
   required: ["picks"],
 };
 
+export const ANALYSIS_SCHEMA = {
+  type: "object",
+  properties: {
+    as_of: { type: "string" },
+    headline: { type: "string", description: "One-line verdict on where to put money now, max ~90 chars" },
+    mood: { type: "string", enum: ["risk-on", "risk-off", "mixed"] },
+    summary: { type: "string", description: "4-6 plain sentences: what the research says, what is likely next, and what that means for this person" },
+    forecasts: { type: "array", items: forecast },
+    picks: {
+      type: "array",
+      description: "Best moves right now, best first",
+      items: {
+        type: "object",
+        properties: {
+          ...idea.properties,
+          expected: { type: "string", description: "Realistic return or outcome, e.g. '≈6.0% a year, fixed' or 'volatile: −30% to +40% in a year'" },
+          risks: { type: "string", description: "What can go wrong, one sentence" },
+        },
+        required: [...idea.required, "expected", "risks"],
+      },
+    },
+    allocation: {
+      type: "array",
+      description: "How to split the money they have left each month",
+      items: {
+        type: "object",
+        properties: {
+          bucket: { type: "string", description: "e.g. 'Emergency fund (digital bank)', 'RTB / MP2', 'PSEi index fund', 'Bitcoin'" },
+          pct: { type: "number", description: "Percent of monthly leftover; all rows add up to 100" },
+          amount: { ...nullable("number"), description: "Pesos per month" },
+          why: { type: "string" },
+        },
+        required: ["bucket", "pct", "amount", "why"],
+      },
+    },
+    tips: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { title: { type: "string" }, body: { type: "string", description: "Specific and actionable, 1-3 sentences" } },
+        required: ["title", "body"],
+      },
+    },
+    avoid: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { title: { type: "string" }, why: { type: "string" } },
+        required: ["title", "why"],
+      },
+    },
+    sources: { type: "array", items: source },
+  },
+  required: ["as_of", "headline", "mood", "summary", "forecasts", "picks", "allocation", "tips", "avoid", "sources"],
+};
+
 const peso = (n: number) => `₱${Math.round(n).toLocaleString("en-US")}`;
 
 function personal(ctx: Context) {
@@ -305,4 +368,62 @@ The reader: ${personal(ctx).replace(/\n/g, " ")}
 
 Headlines:
 ${headlines.map((h, i) => `[${i}] ${h.title} (${h.source}${h.region === "global" ? ", global" : ""}) ${h.summary.slice(0, 180)}`).join("\n")}`;
+}
+
+/** Trim the stored research to what the analyst needs, so the prompt stays small. */
+function research(ctx: Context) {
+  const r = ctx.reports;
+  const m = r?.market?.data;
+  const f = r?.fuel?.data;
+  const n = r?.news?.data;
+  const market = m && {
+    from: r!.market!.generated_at,
+    headline: m.headline,
+    mood: m.mood,
+    summary: m.summary,
+    quotes: [...m.stocks, ...m.forex, ...m.crypto, ...(m.commodities ?? [])].map(({ symbol, price, change_pct, note }) => ({ symbol, price, change_pct, note })),
+    movers: m.movers,
+    forecasts: m.forecasts ?? [],
+    ideas: m.ideas ?? [],
+    watch: m.watch,
+  };
+  const fuel = f && {
+    from: r!.fuel!.generated_at,
+    city: f.city,
+    advisory: f.advisory,
+    forecast: f.forecast ?? null,
+    cheapest: [...f.prices].sort((a, b) => (a.low ?? a.high ?? 1e9) - (b.low ?? b.high ?? 1e9)).slice(0, 6),
+  };
+  const news = n && {
+    from: r!.news!.generated_at,
+    items: n.items.slice(0, 30).map((i) => `[${i.tag}${i.region === "global" ? ", global" : ""}] ${i.title}${i.why ? ` — ${i.why}` : ""}`),
+  };
+  return JSON.stringify({ market, fuel, news }, null, 1);
+}
+
+export function analyzePrompt(ctx: Context, today: string) {
+  const s = ctx.spending;
+  const leftover = Math.max(0, Math.round(s.avg_monthly_income - s.avg_monthly_spend));
+  return `You are Pitaka's investment analyst for one person in the Philippines. Today is ${today} (Asia/Manila).
+
+Below is the research Pitaka already gathered (market brief, fuel prices and news). Analyze it and turn it into a forecast and a plan. You may use WebSearch and WebFetch to check a number that looks stale or to fill a gap (current RTB/T-bill yields, MP2 dividend rate, digital-bank time deposit rates, analyst targets), but build mainly on the research given. Never invent a number; if you can't verify it, say so.
+
+About the person:
+${personal(ctx)}
+Money left over each month: ≈${peso(leftover)}.
+Watchlist: ${ctx.profile.watchlist}.
+
+Research:
+${research(ctx)}
+
+Fill the schema:
+- headline + summary: your verdict on the market right now and where money is best placed this month.
+- forecasts: 8–12 outlooks with a likely low–high range, horizon (2–4 weeks for most; add end-of-year for BTC and PSEi), direction, confidence and drivers. Cover BTC, ETH, at least two other coins (e.g. SOL, XRP, or any in the news/watchlist), PSEi, USD/PHP, gold, Brent crude, and one "Fuel" row for Philippine pump prices next week (unit "₱/L", range = expected change, price = null). Name whose view each range is based on and link it in url. Keep ranges honest: wide when volatile, "low" confidence when sources disagree.
+- picks: 5–7 best moves right now, ranked best first FOR THIS PERSON, mixing safe and growth options but weighted to their risk comfort. Use today's actual rates and prices. Each says why now, the expected return or outcome, the main risk, how to start in the Philippines and the minimum amount. If their emergency fund is under 3 months, rank building it first. Crypto only as a small slice, never more than 10% for aggressive and 0–5% otherwise.
+- allocation: a split of their ≈${peso(leftover)} monthly leftover across 3–6 buckets that add up to 100%, with peso amounts.${leftover === 0 ? " Their leftover is ₱0 or unknown: give percentages only (amount null) and make the first tip about freeing up money to invest." : ""}
+- tips: 6–10 tips and tricks that are specific and current, e.g. timing fuel fill-ups to the forecast, peso-cost averaging into dips, where to get the best time-deposit rate, buying RTBs through bank apps, MP2 annual vs monthly payout, tax-free options, using card promos, rebalancing.
+- avoid: 2–4 things to steer clear of right now (e.g. chasing a coin that already ran up, leverage, "guaranteed return" schemes, locking money they'll need soon).
+- sources: pages you relied on (from the research or your own checks).
+
+Style: plain English, short sentences, peso amounts with ₱. Frame picks as "consider…", never promise returns, no leverage, no single-stock "buy now" calls. This is education, not licensed advice.`;
 }

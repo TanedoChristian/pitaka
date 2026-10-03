@@ -1,8 +1,8 @@
-// Grow: shapes of the research snapshots (market, perks, fuel, news) and the
+// Grow: shapes of the research snapshots (market, perks, fuel, news, analysis) and the
 // sanitizers the ingest endpoint runs on them. Everything the local agent sends
 // is untrusted JSON, so each field is coerced, trimmed and capped here.
 
-export const GROW_KINDS = ["market", "perks", "fuel", "news"] as const;
+export const GROW_KINDS = ["market", "perks", "fuel", "news", "analysis"] as const;
 export type GrowKind = (typeof GROW_KINDS)[number];
 
 export const FUEL_TYPES = ["Gasoline (RON 91)", "Gasoline (RON 95)", "Gasoline (RON 97+)", "Diesel", "Kerosene"] as const;
@@ -121,11 +121,29 @@ export type NewsItem = {
 
 export type NewsReport = { as_of: string; items: NewsItem[] };
 
+/** A ranked "best move right now": an InvestIdea plus what to expect and what can go wrong. */
+export type InvestPick = InvestIdea & { expected: string; risks: string };
+
+/** The agent's read of all the research above: forecasts, best moves and tips for this person. */
+export type AnalysisReport = {
+  as_of: string;
+  headline: string;
+  mood: "risk-on" | "risk-off" | "mixed";
+  summary: string;
+  forecasts: Forecast[];
+  picks: InvestPick[];
+  allocation: { bucket: string; pct: number; amount: number | null; why: string }[];
+  tips: { title: string; body: string }[];
+  avoid: { title: string; why: string }[];
+  sources: Source[];
+};
+
 export type GrowData = {
   market: MarketReport;
   perks: PerksReport;
   fuel: FuelReport;
   news: NewsReport;
+  analysis: AnalysisReport;
 };
 
 export type GrowReport<K extends GrowKind = GrowKind> = {
@@ -225,7 +243,7 @@ const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T):
   typeof v === "string" && (allowed as readonly string[]).includes(v.toLowerCase()) ? (v.toLowerCase() as T) : fallback;
 
 function forecasts(v: unknown): Forecast[] {
-  return arr(v, 16)
+  return arr(v, 20)
     .map((x) => {
       const o = obj(x);
       let low = num(o.low);
@@ -248,21 +266,22 @@ function forecasts(v: unknown): Forecast[] {
     .filter((f) => f.asset && f.drivers);
 }
 
+function idea(o: Obj): InvestIdea {
+  return {
+    title: str(o.title, 120),
+    vehicle: str(o.vehicle, 60),
+    risk: pick(o.risk, RISK_LEVELS, "moderate"),
+    horizon: str(o.horizon, 40),
+    why: str(o.why, 500),
+    how: str(o.how, 400),
+    min_amount: num(o.min_amount),
+    url: safeUrl(o.url),
+  };
+}
+
 function ideas(v: unknown): InvestIdea[] {
   return arr(v, 10)
-    .map((x) => {
-      const o = obj(x);
-      return {
-        title: str(o.title, 120),
-        vehicle: str(o.vehicle, 60),
-        risk: pick(o.risk, RISK_LEVELS, "moderate"),
-        horizon: str(o.horizon, 40),
-        why: str(o.why, 500),
-        how: str(o.how, 400),
-        min_amount: num(o.min_amount),
-        url: safeUrl(o.url),
-      };
-    })
+    .map((x) => idea(obj(x)))
     .filter((i) => i.title && i.why);
 }
 
@@ -398,8 +417,40 @@ export function sanitizeNews(raw: unknown): NewsReport | null {
   return { as_of: isoOrNow(o.as_of), items };
 }
 
+export function sanitizeAnalysis(raw: unknown): AnalysisReport | null {
+  const o = obj(raw);
+  const headline = str(o.headline, 200);
+  if (!headline) return null;
+  const picks = arr(o.picks, 8)
+    .map((x) => ({ ...idea(obj(x)), expected: str(obj(x).expected, 80), risks: str(obj(x).risks, 300) }))
+    .filter((p) => p.title && p.why);
+  const allocation = arr(o.allocation, 8)
+    .map((x) => {
+      const a = obj(x);
+      const pct = num(a.pct);
+      return { bucket: str(a.bucket, 60), pct: pct === null ? 0 : Math.max(0, Math.min(100, pct)), amount: num(a.amount), why: str(a.why, 240) };
+    })
+    .filter((a) => a.bucket && a.pct > 0);
+  return {
+    as_of: isoOrNow(o.as_of),
+    headline,
+    mood: o.mood === "risk-on" || o.mood === "risk-off" ? o.mood : "mixed",
+    summary: str(o.summary, 1600),
+    forecasts: forecasts(o.forecasts),
+    picks,
+    allocation,
+    tips: arr(o.tips, 12)
+      .map((x) => ({ title: str(obj(x).title, 120), body: str(obj(x).body, 500) }))
+      .filter((t) => t.title && t.body),
+    avoid: arr(o.avoid, 6)
+      .map((x) => ({ title: str(obj(x).title, 120), why: str(obj(x).why, 300) }))
+      .filter((a) => a.title),
+    sources: sources(o.sources),
+  };
+}
+
 export function sanitizeGrow<K extends GrowKind>(kind: K, raw: unknown): GrowData[K] | null {
-  const fn = { market: sanitizeMarket, perks: sanitizePerks, fuel: sanitizeFuel, news: sanitizeNews }[kind];
+  const fn = { market: sanitizeMarket, perks: sanitizePerks, fuel: sanitizeFuel, news: sanitizeNews, analysis: sanitizeAnalysis }[kind];
   return fn(raw) as GrowData[K] | null;
 }
 

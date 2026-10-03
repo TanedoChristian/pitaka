@@ -1,10 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { currentMonth } from "@/lib/format";
-import { isGrowKind, sanitizeGrow, str } from "@/lib/grow";
+import { GROW_KINDS, isGrowKind, sanitizeGrow, str } from "@/lib/grow";
 import { safeEqual } from "@/lib/session";
 import {
   getAccounts,
   getCategoriesSince,
+  getLatestReport,
   getMonthlyAverages,
   getProfile,
   getTopMerchantsSince,
@@ -34,15 +35,23 @@ function authorized(req: Request) {
 /**
  * The local research agent (agent/pitaka-agent.ts) asks what to research:
  * your cards, fuel/city, watchlist and a spending summary it can tailor insights to.
+ * With ?reports=1 it also returns the latest market, fuel and news reports for the "analyze" task.
  */
 export async function GET(req: Request) {
   if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
-  return withErrors(() => context());
+  const withReports = new URL(req.url).searchParams.get("reports") === "1";
+  return withErrors(() => context(withReports));
 }
 
-async function context() {
+async function latestReports() {
+  const [market, fuel, news] = await Promise.all([getLatestReport("market"), getLatestReport("fuel"), getLatestReport("news")]);
+  const pack = <T,>(r: { generated_at: Date; data: T } | null) => (r ? { generated_at: r.generated_at, data: r.data } : null);
+  return { market: pack(market), fuel: pack(fuel), news: pack(news) };
+}
+
+async function context(withReports: boolean) {
   const month = currentMonth();
-  const [profile, accounts, averages, categories, merchants, market, perks, fuel, news] = await Promise.all([
+  const [profile, accounts, averages, categories, merchants, market, perks, fuel, news, analysis, reports] = await Promise.all([
     getProfile(),
     getAccounts(),
     getMonthlyAverages(month, 3),
@@ -52,6 +61,8 @@ async function context() {
     listReportDates("perks", 1),
     listReportDates("fuel", 1),
     listReportDates("news", 1),
+    listReportDates("analysis", 1),
+    withReports ? latestReports() : null,
   ]);
   return Response.json(
     {
@@ -71,13 +82,15 @@ async function context() {
         perks: perks[0]?.generated_at ?? null,
         fuel: fuel[0]?.generated_at ?? null,
         news: news[0]?.generated_at ?? null,
+        analysis: analysis[0]?.generated_at ?? null,
       },
+      ...(reports ? { reports } : {}),
     },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
 
-/** Body: { kind: "market" | "perks" | "fuel" | "news", data: {...} } */
+/** Body: { kind: "market" | "perks" | "fuel" | "news" | "analysis", data: {...} } */
 export async function POST(req: Request) {
   if (!authorized(req)) return Response.json({ error: "unauthorized" }, { status: 401 });
   return withErrors(() => save(req));
@@ -86,7 +99,7 @@ export async function POST(req: Request) {
 async function save(req: Request) {
   const body = await req.json().catch(() => null);
   const kind = body?.kind;
-  if (!isGrowKind(kind)) return Response.json({ error: "kind must be market, perks, fuel or news" }, { status: 400 });
+  if (!isGrowKind(kind)) return Response.json({ error: `kind must be one of: ${GROW_KINDS.join(", ")}` }, { status: 400 });
   const data = sanitizeGrow(kind, body?.data);
   if (!data) return Response.json({ error: `no usable ${kind} data after validation` }, { status: 422 });
   const id = await saveReport(kind, data, str(body?.source, 40) || "agent");

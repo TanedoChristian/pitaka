@@ -131,3 +131,25 @@ test("fuel forecast keeps ranges and is null when empty", () => {
   assert.equal(fc.direction, "down");
   assert.deepEqual(fc.changes, [{ product: "Diesel", low: -0.8, high: -0.2 }]);
 });
+
+test("analysis keeps ranked picks, clamps allocation and drops junk", () => {
+  assert.equal(sanitizeGrow("analysis", { picks: [] }), null);
+  const a = sanitizeGrow("analysis", {
+    headline: "Lock in yields, DCA into dips",
+    mood: "risk-off",
+    picks: [
+      { title: "Emergency fund first", why: "Only 1 month covered", risk: "conservative", expected: "≈4% a year", risks: "None", min_amount: 100 },
+      { title: "No why" },
+    ],
+    allocation: [{ bucket: "MP2", pct: 140, amount: "₱3,000" }, { bucket: "Zero", pct: 0 }],
+    tips: [{ title: "Buy RTB in-app", body: "Most banks sell them." }, { title: "Empty" }],
+    avoid: [{ title: "Leverage", why: "Losses compound" }],
+    forecasts: [{ asset: "Pump prices", group: "Fuel", direction: "down", low: -0.8, high: -0.3, unit: "₱/L", drivers: "Brent fell" }],
+  })!;
+  assert.equal(a.mood, "risk-off");
+  assert.equal(a.picks.length, 1);
+  assert.equal(a.picks[0].expected, "≈4% a year");
+  assert.deepEqual(a.allocation, [{ bucket: "MP2", pct: 100, amount: 3000, why: "" }]);
+  assert.equal(a.tips.length, 1);
+  assert.equal(a.forecasts[0].group, "Fuel");
+});

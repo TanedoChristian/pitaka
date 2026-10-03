@@ -37,7 +37,8 @@ npm run agent -- markets     # stocks, forex & crypto brief (≈2–5 min)
 npm run agent -- perks       # live promos for your cards (≈3–8 min)
 npm run agent -- fuel        # this week's price change + cheapest brands (≈2–4 min)
 npm run agent -- news        # headlines + one-line "why it matters" (≈30 s)
-npm run agent -- all         # all four in parallel
+npm run agent -- analyze     # forecast, best investments & tips from the research above
+npm run agent -- all         # research in parallel, then analyze
 ```
 
 Options:

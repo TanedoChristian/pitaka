@@ -6,7 +6,8 @@
  *   npm run agent -- perks              # live promos for your cards
  *   npm run agent -- fuel               # weekly price change + cheapest brands
  *   npm run agent -- news               # headlines + "why it matters"
- *   npm run agent -- all                # everything, in parallel
+ *   npm run agent -- analyze            # forecast + best investments from the research above
+ *   npm run agent -- all                # everything (research in parallel, then analyze)
  *
  * Options: --dry-run (print, don't send)  --model <name>  --budget <usd per task>
  * Config: agent/.env (see agent/README.md).
@@ -19,6 +20,8 @@ import { fileURLToPath } from "node:url";
 import { sanitizeGrow, type GrowKind } from "../lib/grow";
 import { fetchNews } from "../lib/news";
 import {
+  ANALYSIS_SCHEMA,
+  analyzePrompt,
   type Context,
   FUEL_SCHEMA,
   fuelPrompt,
@@ -31,9 +34,10 @@ import {
 } from "./tasks";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const TASKS = ["markets", "perks", "fuel", "news"] as const;
+const TASKS = ["markets", "perks", "fuel", "news", "analyze"] as const;
 type Task = (typeof TASKS)[number];
-const KIND: Record<Task, GrowKind> = { markets: "market", perks: "perks", fuel: "fuel", news: "news" };
+const KIND: Record<Task, GrowKind> = { markets: "market", perks: "perks", fuel: "fuel", news: "news", analyze: "analysis" };
+const ALIASES: Record<string, Task> = { market: "markets", analysis: "analyze", forecast: "analyze" };
 
 // ---------- config ----------
 
@@ -67,7 +71,7 @@ const picked = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--m
 const tasks: Task[] =
   picked.length === 0 || picked.includes("all")
     ? [...TASKS]
-    : picked.map((p) => (p === "market" ? "markets" : p)).filter((p): p is Task => (TASKS as readonly string[]).includes(p));
+    : picked.map((p) => ALIASES[p] ?? p).filter((p): p is Task => (TASKS as readonly string[]).includes(p));
 
 if (!tasks.length) {
   console.error(`Unknown task "${picked.join(" ")}". Use one of: ${TASKS.join(", ")}, all`);
@@ -161,6 +165,12 @@ function runClaude(task: string, prompt: string, schema: object, tools: string[]
   });
 }
 
+const age = (r: { generated_at: string } | null | undefined) => {
+  if (!r) return "(none)";
+  const h = Math.round((Date.now() - Date.parse(r.generated_at)) / 3_600_000);
+  return h < 1 ? "(<1h old)" : `(${h}h old)`;
+};
+
 // ---------- tasks ----------
 
 async function research(task: Task, ctx: Context): Promise<{ data: unknown; cost: number }> {
@@ -168,6 +178,12 @@ async function research(task: Task, ctx: Context): Promise<{ data: unknown; cost
   if (task === "markets") return runClaude(task, marketPrompt(ctx, todayLong), MARKET_SCHEMA, web);
   if (task === "perks") return runClaude(task, perksPrompt(ctx, today), PERKS_SCHEMA, web);
   if (task === "fuel") return runClaude(task, fuelPrompt(ctx, todayLong), FUEL_SCHEMA, web);
+  if (task === "analyze") {
+    const r = ctx.reports;
+    if (!r?.market && !r?.fuel && !r?.news) throw new Error("nothing to analyze yet: run markets, fuel or news first");
+    log(task, dim(`using market ${age(r.market)}, fuel ${age(r.fuel)}, news ${age(r.news)}`));
+    return runClaude(task, analyzePrompt(ctx, todayLong), ANALYSIS_SCHEMA, web);
+  }
 
   // news: headlines come straight from RSS (exact links); Claude only picks and explains.
   const items = await fetchNews(60);
@@ -189,6 +205,7 @@ function summarize(task: Task, data: unknown) {
   const d = data as Record<string, unknown[] | string | undefined>;
   if (task === "markets") return `${d.headline} (${(d.stocks as unknown[]).length} stocks, ${(d.forex as unknown[]).length} FX, ${(d.crypto as unknown[]).length} crypto, ${(d.forecasts as unknown[] | undefined)?.length ?? 0} forecasts, ${(d.ideas as unknown[] | undefined)?.length ?? 0} ideas)`;
   if (task === "perks") return `${(d.perks as unknown[]).length} live perks`;
+  if (task === "analyze") return `${d.headline} (${(d.forecasts as unknown[]).length} forecasts, ${(d.picks as unknown[]).length} picks, ${(d.tips as unknown[]).length} tips)`;
   if (task === "fuel") return `${(d.prices as unknown[]).length} brand prices · ${(d.advisory as unknown as { summary: string }).summary}`;
   return `${(d.items as unknown[]).length} headlines`;
 }
@@ -196,6 +213,8 @@ function summarize(task: Task, data: unknown) {
 async function runTask(task: Task, ctx: Context) {
   const t0 = Date.now();
   log(task, `starting with ${model}${task === "news" ? "" : " + web search"}…`);
+  // Analyze reads the research the other tasks just sent, so it fetches context with the reports.
+  if (task === "analyze") ctx = (await api("/api/grow?reports=1")) as Context;
   const { data, cost } = await research(task, ctx);
   const kind = KIND[task];
   const clean = sanitizeGrow(kind, data);
@@ -214,14 +233,21 @@ async function runTask(task: Task, ctx: Context) {
 async function main() {
   console.log(bold(`Pitaka agent → ${baseUrl}`) + dim(` · ${tasks.join(", ")}${dryRun ? " · dry run" : ""}`));
   const ctx = (await api("/api/grow")) as Context;
-  const results = await Promise.allSettled(tasks.map((t) => runTask(t, ctx)));
+  // Research first (in parallel), then analyze on top of whatever it produced.
+  const research = tasks.filter((t) => t !== "analyze");
+  const results = await Promise.allSettled(research.map((t) => runTask(t, ctx)));
+  if (tasks.includes("analyze")) {
+    if (dryRun && research.length) log("analyze", dim("dry run: analyzing the reports already on the server, not the ones above"));
+    results.push(...(await Promise.allSettled([runTask("analyze", ctx)])));
+  }
+  const ordered = [...research, ...(tasks.includes("analyze") ? (["analyze"] as const) : [])];
   let cost = 0;
   let failed = 0;
   results.forEach((r, i) => {
     if (r.status === "fulfilled") cost += r.value;
     else {
       failed++;
-      log(tasks[i], red(`✗ ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`));
+      log(ordered[i], red(`✗ ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`));
     }
   });
   console.log(dim(`Done: ${tasks.length - failed}/${tasks.length} ok · total $${cost.toFixed(2)}`));
