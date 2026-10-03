@@ -50,6 +50,21 @@ export default async function Fuel() {
         : `A rollback of ${formatPeso(-netChange)}/L takes effect ${upcoming === 0 ? "today" : upcoming === 1 ? "tomorrow" : `on ${formatLongDate(adv!.effective!)}`}. Wait for it if your tank can.`
       : null;
 
+  // Next week's estimate; only worth showing while it's still ahead of us.
+  const fc = report?.data.forecast ?? null;
+  const fcDays = fc?.effective ? daysUntil(fc.effective, today) : null;
+  const forecast = fc && (fcDays === null || fcDays >= 0) ? fc : null;
+  const fcMine =
+    forecast &&
+    (forecast.changes.find((c) => fuelMatches(c.product, profile.fuel)) ??
+      forecast.changes.find((c) => c.product.toLowerCase().includes(family)));
+  const fcAdvice =
+    forecast && forecast.direction !== "sideways"
+      ? forecast.direction === "up"
+        ? `Expected to go up${fcMine ? ` ${rangeLabel(fcMine.low, fcMine.high)}` : ""}${forecast.effective ? ` on ${formatLongDate(forecast.effective)}` : " next week"}. Top up before then if you can.`
+        : `A rollback is expected${fcMine ? ` (${rangeLabel(fcMine.low, fcMine.high)})` : ""}${forecast.effective ? ` on ${formatLongDate(forecast.effective)}` : " next week"}. If your tank allows, fill up after it.`
+      : null;
+
   return (
     <>
       <details className="card settings-fold" open={!profile.city}>
@@ -112,6 +127,39 @@ export default async function Fuel() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {forecast && (
+            <section className={`card forecast-next forecast ${forecast.direction}`}>
+              <div className="card-head">
+                <h2>Next week&apos;s outlook</h2>
+                <span className={`trend ${forecast.direction}`}>
+                  {forecast.direction === "up" ? "▲ Likely hike" : forecast.direction === "down" ? "▼ Likely rollback" : "◆ Little change"}
+                </span>
+              </div>
+              {fcAdvice && <p className="advisory-advice">{fcAdvice}</p>}
+              {forecast.summary && <p className="small">{forecast.summary}</p>}
+              {forecast.changes.length > 0 && (
+                <div className="chips">
+                  {forecast.changes.map((c, i) => {
+                    const mid = ((c.low ?? c.high ?? 0) + (c.high ?? c.low ?? 0)) / 2;
+                    return (
+                      <span key={i} className={`change-chip${mid > 0 ? " up" : mid < 0 ? " down" : ""}`}>
+                        {c.product} {rangeLabel(c.low, c.high)}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {forecast.drivers.length > 0 && (
+                <ul className="small muted">
+                  {forecast.drivers.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="small muted">Early estimates from oil companies and the DOE. The final number is announced Monday.</p>
             </section>
           )}
 
@@ -273,4 +321,16 @@ export default async function Fuel() {
       {report && <RefreshHint task="fuel" />}
     </>
   );
+}
+
+/** "+₱0.50–0.80/L" or "−₱0.30/L" for a forecast range. */
+function rangeLabel(low: number | null, high: number | null) {
+  const fmt = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}₱${Math.abs(n).toFixed(2)}`;
+  if (low === null && high === null) return "—";
+  if (low === null || high === null || low === high) return `${fmt((low ?? high)!)}/L`;
+  if (Math.sign(low) === Math.sign(high)) {
+    const [a, b] = low < 0 ? [high, low] : [low, high];
+    return `${fmt(a)}–${Math.abs(b).toFixed(2)}/L`;
+  }
+  return `${fmt(low)} to ${fmt(high)}/L`;
 }

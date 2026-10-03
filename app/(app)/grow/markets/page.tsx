@@ -2,8 +2,8 @@ import Link from "next/link";
 import { saveGrowProfile } from "@/app/actions";
 import { AgentEmpty, RefreshHint, Updated } from "@/components/GrowStatus";
 import PendingSubmit from "@/components/PendingSubmit";
-import { TZ } from "@/lib/format";
-import { formatPct, formatPrice, RISK_LEVELS, type Quote } from "@/lib/grow";
+import { formatPeso, TZ } from "@/lib/format";
+import { formatPct, formatPrice, RISK_LEVELS, type Forecast, type InvestIdea, type Quote, type Risk } from "@/lib/grow";
 import { getLatestReport, getProfile, getReport, listReportDates } from "@/lib/queries";
 
 export default async function Markets({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
@@ -61,6 +61,12 @@ export default async function Markets({ searchParams }: { searchParams: Promise<
 
   const r = report.data;
   const isLatest = report.id === latest?.id;
+  const commodities = r.commodities ?? [];
+  const forecasts = r.forecasts ?? [];
+  // Ideas for the person's own risk level first, then the neighbouring levels.
+  const ideas = [...(r.ideas ?? [])].sort(
+    (a, b) => riskDistance(a.risk, profile.risk) - riskDistance(b.risk, profile.risk),
+  );
 
   return (
     <>
@@ -78,11 +84,46 @@ export default async function Markets({ searchParams }: { searchParams: Promise<
         )}
       </section>
 
-      <div className="quote-grid">
+      <div className={`quote-grid${commodities.length ? " four" : ""}`}>
         <QuoteCard title="Stocks" rows={r.stocks} />
         <QuoteCard title="Forex" rows={r.forex} />
         <QuoteCard title="Crypto" rows={r.crypto} />
+        {commodities.length > 0 && <QuoteCard title="Oil, gold & commodities" rows={commodities} />}
       </div>
+
+      {forecasts.length > 0 && (
+        <section className="forecasts">
+          <div className="section-head">
+            <h2 className="section-title">Outlook</h2>
+            <p className="small muted">
+              Likely ranges from analysts, futures and recent trading. These are estimates, not promises. Markets often
+              move outside them.
+            </p>
+          </div>
+          <div className="forecast-grid">
+            {forecasts.map((f, n) => (
+              <ForecastCard key={n} f={f} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {ideas.length > 0 && (
+        <section className="ideas">
+          <div className="section-head">
+            <h2 className="section-title">Where to put money now</h2>
+            <p className="small muted">
+              Ideas that fit today&apos;s rates and prices, starting with ones for a {profile.risk} investor. Only invest money
+              you won&apos;t need within the horizon shown.
+            </p>
+          </div>
+          <div className="idea-grid">
+            {ideas.map((i, n) => (
+              <IdeaCard key={n} idea={i} mine={i.risk === profile.risk} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {r.insights.length > 0 && (
         <section className="card">
@@ -212,6 +253,104 @@ export default async function Markets({ searchParams }: { searchParams: Promise<
 function Change({ v }: { v: number | null }) {
   const tone = v === null ? "" : v > 0 ? " up" : v < 0 ? " down" : "";
   return <span className={`change${tone}`}>{formatPct(v)}</span>;
+}
+
+function riskDistance(a: Risk, b: Risk) {
+  return Math.abs(RISK_LEVELS.indexOf(a) - RISK_LEVELS.indexOf(b));
+}
+
+const ARROW = { up: "▲", down: "▼", sideways: "◆" } as const;
+const TREND = { up: "Leaning up", down: "Leaning down", sideways: "Range-bound" } as const;
+
+function withUnit(n: number | null, unit: string) {
+  if (n === null) return "—";
+  const v = formatPrice(n);
+  if (unit === "₱") return `₱${v}`;
+  if (unit === "USD" || unit === "$") return `$${v}`;
+  if (unit === "%") return `${v}%`;
+  return unit ? `${v} ${unit}` : v;
+}
+
+function ForecastCard({ f }: { f: Forecast }) {
+  // Place today's price on a track that spans the forecast range (and the price, if it sits outside it).
+  const hasRange = f.low !== null && f.high !== null;
+  const min = hasRange ? Math.min(f.low!, f.price ?? f.low!) : 0;
+  const max = hasRange ? Math.max(f.high!, f.price ?? f.high!) : 0;
+  const span = max - min || 1;
+  const at = (v: number) => `${((v - min) / span) * 100}%`;
+  return (
+    <article className={`card forecast ${f.direction}`}>
+      <div className="spread">
+        <span className="chip">{f.group}</span>
+        <span className="small muted">{f.horizon}</span>
+      </div>
+      <div className="forecast-title">
+        <strong>{f.asset}</strong>
+        <span className={`trend ${f.direction}`}>
+          {ARROW[f.direction]} {TREND[f.direction]}
+        </span>
+      </div>
+      {hasRange && (
+        <div className="range" aria-label={`Likely range ${withUnit(f.low, f.unit)} to ${withUnit(f.high, f.unit)}`}>
+          <div className="range-track">
+            <span className="range-band" style={{ left: at(f.low!), width: `calc(${at(f.high!)} - ${at(f.low!)})` }} />
+            {f.price !== null && <span className="range-now" style={{ left: at(f.price) }} title={`Now ${withUnit(f.price, f.unit)}`} />}
+          </div>
+          <div className="spread small">
+            <span>{withUnit(f.low, f.unit)}</span>
+            {f.price !== null && <span className="muted">now {withUnit(f.price, f.unit)}</span>}
+            <span>{withUnit(f.high, f.unit)}</span>
+          </div>
+        </div>
+      )}
+      <p className="small muted">{f.drivers}</p>
+      <div className="spread small">
+        <span className={`confidence ${f.confidence}`}>{f.confidence} confidence</span>
+        {f.url && (
+          <a href={f.url} target="_blank" rel="noopener noreferrer">
+            Source ↗
+          </a>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function IdeaCard({ idea, mine }: { idea: InvestIdea; mine: boolean }) {
+  return (
+    <article className={`card idea${mine ? " mine" : ""}`}>
+      <div className="spread wrap">
+        <span className={`risk-chip ${idea.risk}`}>{idea.risk}</span>
+        {idea.vehicle && <span className="small muted">{idea.vehicle}</span>}
+      </div>
+      <h3>{idea.title}</h3>
+      <p className="small">{idea.why}</p>
+      {idea.how && (
+        <p className="small muted">
+          <strong>How to start:</strong> {idea.how}
+        </p>
+      )}
+      <dl className="idea-facts small">
+        {idea.horizon && (
+          <div>
+            <dt>Keep it in</dt>
+            <dd>{idea.horizon}</dd>
+          </div>
+        )}
+        {idea.min_amount !== null && (
+          <div>
+            <dt>Start with</dt>
+            <dd>{formatPeso(idea.min_amount)}</dd>
+          </div>
+        )}
+      </dl>
+      {idea.url && (
+        <a className="perk-link small" href={idea.url} target="_blank" rel="noopener noreferrer">
+          Official page ↗
+        </a>
+      )}
+    </article>
+  );
 }
 
 function QuoteCard({ title, rows }: { title: string; rows: Quote[] }) {

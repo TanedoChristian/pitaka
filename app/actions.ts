@@ -449,7 +449,7 @@ export async function deleteBudget(form: FormData) {
 /** Pull fresh headlines straight from the RSS feeds (no AI notes). */
 export async function refreshNews() {
   await requireAuth();
-  const items = await fetchNews(40);
+  const items = await fetchNews(60);
   if (items.length) {
     await saveReport("news", { as_of: new Date().toISOString(), items }, "rss");
   }

@@ -11,6 +11,38 @@ export type Risk = (typeof RISK_LEVELS)[number];
 
 export type Source = { title: string; url: string };
 
+export const DIRECTIONS = ["up", "down", "sideways"] as const;
+export type Direction = (typeof DIRECTIONS)[number];
+export const CONFIDENCE = ["low", "medium", "high"] as const;
+export type Confidence = (typeof CONFIDENCE)[number];
+
+/** A sourced outlook for one asset: direction plus a likely range, never a promise. */
+export type Forecast = {
+  asset: string;
+  group: string;
+  horizon: string;
+  direction: Direction;
+  price: number | null;
+  low: number | null;
+  high: number | null;
+  unit: string;
+  confidence: Confidence;
+  drivers: string;
+  url: string;
+};
+
+/** "Where to put money now": an idea matched to a risk level, with how to start. */
+export type InvestIdea = {
+  title: string;
+  vehicle: string;
+  risk: Risk;
+  horizon: string;
+  why: string;
+  how: string;
+  min_amount: number | null;
+  url: string;
+};
+
 export type Quote = {
   symbol: string;
   name: string;
@@ -27,6 +59,10 @@ export type MarketReport = {
   stocks: Quote[];
   forex: Quote[];
   crypto: Quote[];
+  /** Added later: older briefs in the database don't have these. */
+  commodities?: Quote[];
+  forecasts?: Forecast[];
+  ideas?: InvestIdea[];
   movers: { symbol: string; name: string; change_pct: number | null; reason: string }[];
   insights: { title: string; body: string }[];
   watch: { event: string; when: string; why: string }[];
@@ -51,11 +87,21 @@ export type PerksReport = { as_of: string; perks: Perk[]; sources: Source[] };
 
 export type FuelPrice = { brand: string; product: string; low: number | null; high: number | null; area: string };
 
+export type FuelForecast = {
+  effective: string | null;
+  direction: Direction;
+  summary: string;
+  changes: { product: string; low: number | null; high: number | null }[];
+  drivers: string[];
+};
+
 export type FuelReport = {
   as_of: string;
   city: string;
   fuel: string;
   advisory: { effective: string | null; summary: string; changes: { product: string; change: number | null }[] };
+  /** Next week's expected adjustment (estimates from oil firms/DOE); missing in older reports. */
+  forecast?: FuelForecast | null;
   prices: FuelPrice[];
   tips: string[];
   sources: Source[];
@@ -69,6 +115,8 @@ export type NewsItem = {
   summary: string;
   why: string;
   tag: string;
+  /** "ph" or "global"; older reports don't have it and are all Philippine. */
+  region?: "ph" | "global";
 };
 
 export type NewsReport = { as_of: string; items: NewsItem[] };
@@ -173,6 +221,73 @@ function quotes(v: unknown): Quote[] {
     .filter((q) => q.symbol || q.name);
 }
 
+const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+  typeof v === "string" && (allowed as readonly string[]).includes(v.toLowerCase()) ? (v.toLowerCase() as T) : fallback;
+
+function forecasts(v: unknown): Forecast[] {
+  return arr(v, 16)
+    .map((x) => {
+      const o = obj(x);
+      let low = num(o.low);
+      let high = num(o.high);
+      if (low !== null && high !== null && low > high) [low, high] = [high, low];
+      return {
+        asset: str(o.asset, 60),
+        group: str(o.group, 30) || "Other",
+        horizon: str(o.horizon, 40),
+        direction: pick(o.direction, DIRECTIONS, "sideways"),
+        price: num(o.price),
+        low,
+        high,
+        unit: str(o.unit, 16),
+        confidence: pick(o.confidence, CONFIDENCE, "low"),
+        drivers: str(o.drivers, 500),
+        url: safeUrl(o.url),
+      };
+    })
+    .filter((f) => f.asset && f.drivers);
+}
+
+function ideas(v: unknown): InvestIdea[] {
+  return arr(v, 10)
+    .map((x) => {
+      const o = obj(x);
+      return {
+        title: str(o.title, 120),
+        vehicle: str(o.vehicle, 60),
+        risk: pick(o.risk, RISK_LEVELS, "moderate"),
+        horizon: str(o.horizon, 40),
+        why: str(o.why, 500),
+        how: str(o.how, 400),
+        min_amount: num(o.min_amount),
+        url: safeUrl(o.url),
+      };
+    })
+    .filter((i) => i.title && i.why);
+}
+
+function fuelForecast(v: unknown): FuelForecast | null {
+  const o = obj(v);
+  const summary = str(o.summary, 600);
+  const changes = arr(o.changes, 8)
+    .map((x) => {
+      const c = obj(x);
+      let low = num(c.low);
+      let high = num(c.high);
+      if (low !== null && high !== null && low > high) [low, high] = [high, low];
+      return { product: str(c.product, 40), low, high };
+    })
+    .filter((c) => c.product && (c.low !== null || c.high !== null));
+  if (!summary && !changes.length) return null;
+  return {
+    effective: ymd(o.effective),
+    direction: pick(o.direction, DIRECTIONS, "sideways"),
+    summary,
+    changes,
+    drivers: strings(o.drivers, 5, 200),
+  };
+}
+
 // ---------- per-kind sanitizers ----------
 
 export function sanitizeMarket(raw: unknown): MarketReport | null {
@@ -188,6 +303,9 @@ export function sanitizeMarket(raw: unknown): MarketReport | null {
     stocks: quotes(o.stocks),
     forex: quotes(o.forex),
     crypto: quotes(o.crypto),
+    commodities: quotes(o.commodities),
+    forecasts: forecasts(o.forecasts),
+    ideas: ideas(o.ideas),
     movers: arr(o.movers, 12)
       .map((x) => {
         const m = obj(x);
@@ -251,6 +369,7 @@ export function sanitizeFuel(raw: unknown): FuelReport | null {
     city: str(o.city, 80),
     fuel: str(o.fuel, 40),
     advisory,
+    forecast: fuelForecast(o.forecast),
     prices,
     tips: strings(o.tips, 8),
     sources: sources(o.sources),
@@ -271,6 +390,7 @@ export function sanitizeNews(raw: unknown): NewsReport | null {
         summary: str(n.summary, 500),
         why: str(n.why, 400),
         tag: str(n.tag, 30),
+        region: n.region === "global" ? ("global" as const) : ("ph" as const),
       };
     })
     .filter((n) => n.title && n.url);

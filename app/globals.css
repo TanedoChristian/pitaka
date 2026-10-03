@@ -1174,6 +1174,49 @@ ol.tips li > p:only-of-type { margin-top: 3px; }
 .history .mood-dot { margin-top: 0; }
 .history-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 550; }
 
+/* outlook & ideas */
+.section-head { display: grid; gap: 2px; }
+.section-head p { margin: 0 2px; }
+.forecasts, .ideas { display: grid; gap: 12px; }
+.forecast-grid, .idea-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.forecast, .idea { gap: 10px; align-content: start; }
+.forecast p, .idea p, .idea h3 { margin: 0; }
+.forecast-title { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.forecast-title strong { font-size: 1.05rem; }
+.trend { font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--text-2); }
+.trend.up { color: var(--good); }
+.trend.down { color: var(--bad); }
+.range { display: grid; gap: 6px; }
+.range-track { position: relative; height: 8px; border-radius: 99px; background: var(--surface-2); }
+.range-band { position: absolute; top: 0; bottom: 0; border-radius: 99px; background: var(--series-2); opacity: 0.45; }
+.forecast.up .range-band { background: var(--good); }
+.forecast.down .range-band { background: var(--bad); }
+.range-now {
+  position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%; background: var(--text); border: 2px solid var(--surface);
+}
+.confidence { font-weight: 650; text-transform: capitalize; color: var(--muted); }
+.confidence.high { color: var(--good); }
+.confidence.medium { color: var(--text-2); }
+.forecast a, .idea a { color: var(--accent); font-weight: 600; }
+.idea h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.15rem; font-weight: 560; letter-spacing: -0.02em; line-height: 1.25;
+}
+.idea.mine { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.risk-chip {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--text-2);
+}
+.risk-chip.conservative { background: var(--accent-soft); color: var(--accent); }
+.risk-chip.aggressive { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.idea-facts { margin: 0; display: flex; gap: 18px; flex-wrap: wrap; }
+.idea-facts dt { color: var(--muted); }
+.idea-facts dd { margin: 0; font-weight: 650; }
+.forecast-next { display: grid; gap: 8px; }
+.forecast-next p { margin: 0; }
+.forecast-next ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+
 /* perks */
 .perks-head .chips { margin-top: 2px; }
 .perk-section { display: grid; gap: 10px; }
@@ -1336,12 +1379,26 @@ ol.tips li > p:only-of-type { margin-top: 3px; }
   .quote-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   .market-hero { padding: 24px 28px; }
   .perk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .forecast-grid, .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tip-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   .news-lead { padding: 24px 28px; }
 }
 
 @media (min-width: 1100px) {
   .quote-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .perk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quote-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .perk-grid, .forecast-grid, .idea-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .news-list.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .news-list.cols li + li { border-top: 0; }
+  .news-list.cols li { border-top: 1px solid var(--border); }
+  .news-list.cols li:nth-child(-n + 2) { border-top: 0; }
+  .news-list.cols li:nth-child(odd) { border-right: 1px solid var(--border); }
+}
+
+/* Grow pages are dashboards: give them more room than the ledger pages. */
+.page:has(> .grow) { width: min(1360px, 100%); }
+@media (min-width: 1500px) {
+  .quote-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .forecast-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 .grow-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 3px; }

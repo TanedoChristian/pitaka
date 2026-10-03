@@ -170,7 +170,7 @@ async function research(task: Task, ctx: Context): Promise<{ data: unknown; cost
   if (task === "fuel") return runClaude(task, fuelPrompt(ctx, todayLong), FUEL_SCHEMA, web);
 
   // news: headlines come straight from RSS (exact links); Claude only picks and explains.
-  const items = await fetchNews(45);
+  const items = await fetchNews(60);
   if (!items.length) throw new Error("no headlines from any RSS feed");
   log(task, `${items.length} headlines from RSS, asking Claude what matters…`);
   const { data, cost } = await runClaude(task, newsPrompt(items, ctx, todayLong), NEWS_SCHEMA, []);
@@ -180,14 +180,14 @@ async function research(task: Task, ctx: Context): Promise<{ data: unknown; cost
   const chosen = new Set(picks.map((p) => p.index));
   const annotated = [
     ...picks.map((p) => ({ ...items[p.index], why: p.why, tag: p.tag || items[p.index].tag })),
-    ...items.filter((_, i) => !chosen.has(i)).slice(0, 15),
+    ...items.filter((_, i) => !chosen.has(i)).slice(0, 20),
   ];
   return { data: { as_of: new Date().toISOString(), items: annotated }, cost };
 }
 
 function summarize(task: Task, data: unknown) {
   const d = data as Record<string, unknown[] | string | undefined>;
-  if (task === "markets") return `${d.headline} (${(d.stocks as unknown[]).length} stocks, ${(d.forex as unknown[]).length} FX, ${(d.crypto as unknown[]).length} crypto)`;
+  if (task === "markets") return `${d.headline} (${(d.stocks as unknown[]).length} stocks, ${(d.forex as unknown[]).length} FX, ${(d.crypto as unknown[]).length} crypto, ${(d.forecasts as unknown[] | undefined)?.length ?? 0} forecasts, ${(d.ideas as unknown[] | undefined)?.length ?? 0} ideas)`;
   if (task === "perks") return `${(d.perks as unknown[]).length} live perks`;
   if (task === "fuel") return `${(d.prices as unknown[]).length} brand prices · ${(d.advisory as unknown as { summary: string }).summary}`;
   return `${(d.items as unknown[]).length} headlines`;

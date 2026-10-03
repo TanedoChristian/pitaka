@@ -98,3 +98,36 @@ test("display helpers", () => {
   assert.equal(ageLabel(new Date("2026-10-01T11:30:00Z"), now), "30m ago");
   assert.equal(ageLabel(new Date("2026-09-28T12:00:00Z"), now), "3d ago");
 });
+
+test("market forecasts and ideas are coerced, ranges ordered and junk dropped", () => {
+  const m = sanitizeGrow("market", {
+    headline: "Hi",
+    forecasts: [
+      { asset: "Bitcoin", group: "Crypto", direction: "UP", low: "120,000", high: 95000, price: 110000, confidence: "sure", drivers: "ETF inflows", url: "javascript:alert(1)" },
+      { asset: "No drivers" },
+    ],
+    ideas: [
+      { title: "RTB", why: "6.1% yield", risk: "conservative", min_amount: "₱5,000" },
+      { title: "Bad risk", why: "x", risk: "yolo" },
+      { title: "No why" },
+    ],
+  })!;
+  assert.equal(m.forecasts!.length, 1);
+  const f = m.forecasts![0];
+  assert.deepEqual([f.direction, f.low, f.high, f.confidence, f.url], ["up", 95000, 120000, "low", ""]);
+  assert.equal(m.ideas!.length, 2);
+  assert.equal(m.ideas![0].min_amount, 5000);
+  assert.equal(m.ideas![1].risk, "moderate");
+  assert.deepEqual(m.commodities, []);
+});
+
+test("fuel forecast keeps ranges and is null when empty", () => {
+  const base = { advisory: { summary: "Gas up" }, prices: [] };
+  assert.equal(sanitizeGrow("fuel", { ...base, forecast: {} })!.forecast, null);
+  const fc = sanitizeGrow("fuel", {
+    ...base,
+    forecast: { direction: "down", effective: "2026-10-13", changes: [{ product: "Diesel", low: -0.2, high: -0.8 }, { product: "X" }], drivers: ["Brent fell"] },
+  })!.forecast!;
+  assert.equal(fc.direction, "down");
+  assert.deepEqual(fc.changes, [{ product: "Diesel", low: -0.8, high: -0.2 }]);
+});

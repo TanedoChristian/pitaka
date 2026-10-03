@@ -34,6 +34,39 @@ const quote = {
   required: ["symbol", "name", "price", "change_pct", "note"],
 };
 
+const forecast = {
+  type: "object",
+  properties: {
+    asset: { type: "string", description: "e.g. 'Bitcoin (BTC)', 'USD/PHP', 'PSEi', 'Brent crude', 'Gold'" },
+    group: { type: "string", enum: ["Crypto", "Stocks", "Forex", "Commodities", "Rates"] },
+    horizon: { type: "string", description: "e.g. 'Next 2 weeks', 'By end of October', 'End of 2026'" },
+    direction: { type: "string", enum: ["up", "down", "sideways"] },
+    price: { ...nullable("number"), description: "Latest price, same unit as low/high" },
+    low: { ...nullable("number"), description: "Low end of the likely range over the horizon" },
+    high: { ...nullable("number"), description: "High end of the likely range over the horizon" },
+    unit: { type: "string", description: "'USD', '₱', 'pts', '$/bbl', '$/oz', '%'" },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    drivers: { type: "string", description: "1-2 sentences: what drives this view and whose view it is (bank, analyst, futures, options market)" },
+    url: { type: "string", description: "Link to the outlook or data the range is based on" },
+  },
+  required: ["asset", "group", "horizon", "direction", "price", "low", "high", "unit", "confidence", "drivers", "url"],
+};
+
+const idea = {
+  type: "object",
+  properties: {
+    title: { type: "string", description: "Short, e.g. 'Lock in today's RTB yield'" },
+    vehicle: { type: "string", description: "e.g. 'Retail Treasury Bonds', 'Pag-IBIG MP2', 'Digital bank time deposit', 'PSEi index fund', 'Bitcoin (small slice)', 'Gold'" },
+    risk: { type: "string", enum: ["conservative", "moderate", "aggressive"] },
+    horizon: { type: "string", description: "How long the money should stay, e.g. '6–12 months', '5+ years'" },
+    why: { type: "string", description: "Why it fits NOW: the current rate, price or trend, with numbers" },
+    how: { type: "string", description: "Concrete first step in the Philippines: where to buy and how" },
+    min_amount: { ...nullable("number"), description: "Minimum to start, in pesos" },
+    url: { type: "string", description: "Official page for the product or offer" },
+  },
+  required: ["title", "vehicle", "risk", "horizon", "why", "how", "min_amount", "url"],
+};
+
 export const MARKET_SCHEMA = {
   type: "object",
   properties: {
@@ -44,6 +77,9 @@ export const MARKET_SCHEMA = {
     stocks: { type: "array", items: quote },
     forex: { type: "array", items: quote },
     crypto: { type: "array", items: quote },
+    commodities: { type: "array", items: quote },
+    forecasts: { type: "array", items: forecast },
+    ideas: { type: "array", items: idea },
     movers: {
       type: "array",
       items: {
@@ -71,7 +107,7 @@ export const MARKET_SCHEMA = {
     moves: { type: "array", items: { type: "string" } },
     sources: { type: "array", items: source },
   },
-  required: ["as_of", "headline", "mood", "summary", "stocks", "forex", "crypto", "movers", "insights", "watch", "moves", "sources"],
+  required: ["as_of", "headline", "mood", "summary", "stocks", "forex", "crypto", "commodities", "forecasts", "ideas", "movers", "insights", "watch", "moves", "sources"],
 };
 
 export const PERKS_SCHEMA = {
@@ -138,10 +174,29 @@ export const FUEL_SCHEMA = {
         required: ["brand", "product", "low", "high", "area"],
       },
     },
+    forecast: {
+      type: "object",
+      description: "The NEXT weekly adjustment (the one after advisory), as estimated by oil firms, DOE or analysts",
+      properties: {
+        effective: { type: ["string", "null"], description: "YYYY-MM-DD the next adjustment would take effect (a Tuesday)" },
+        direction: { type: "string", enum: ["up", "down", "sideways"] },
+        summary: { type: "string", description: "1-2 sentences, e.g. 'Early estimates point to a ₱0.50–0.80/L gasoline hike next Tuesday.'" },
+        changes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { product: { type: "string" }, low: nullable("number"), high: nullable("number") },
+            required: ["product", "low", "high"],
+          },
+        },
+        drivers: { type: "array", items: { type: "string" }, description: "2-4 short reasons: MOPS/Brent trend, peso, OPEC+, geopolitics" },
+      },
+      required: ["effective", "direction", "summary", "changes", "drivers"],
+    },
     tips: { type: "array", items: { type: "string" } },
     sources: { type: "array", items: source },
   },
-  required: ["as_of", "city", "fuel", "advisory", "prices", "tips", "sources"],
+  required: ["as_of", "city", "fuel", "advisory", "forecast", "prices", "tips", "sources"],
 };
 
 export const NEWS_SCHEMA = {
@@ -154,7 +209,10 @@ export const NEWS_SCHEMA = {
         properties: {
           index: { type: "integer", description: "Index of the headline in the list given" },
           why: { type: "string", description: "One sentence: what this means for an ordinary Filipino's money" },
-          tag: { type: "string", enum: ["Rates", "Inflation", "Peso & FX", "Stocks", "Crypto", "Banking", "Tax", "Jobs & pay", "Business"] },
+          tag: {
+            type: "string",
+            enum: ["Rates", "Oil & fuel", "Inflation", "Peso & FX", "Stocks", "Crypto", "Gold & metals", "Banking", "Tax", "Jobs & pay", "Business"],
+          },
         },
         required: ["index", "why", "tag"],
       },
@@ -187,10 +245,13 @@ Research today's markets with WebSearch and WebFetch and fill the JSON schema. U
 Cover:
 - stocks: PSEi first, then these watchlist items that are stocks or indices: ${ctx.profile.watchlist}. Add the S&P 500 and Nasdaq if missing. 5–10 rows.
 - forex: USD/PHP first (most important), then EUR/PHP, JPY/PHP, SGD/PHP, plus any currency pairs in the watchlist. 3–6 rows.
-- crypto: BTC, ETH, plus any coins in the watchlist, prices in USD. 2–5 rows.
-- movers: 3–6 notable movers today (PSE or global) with the reason.
+- crypto: BTC, ETH, SOL, XRP, BNB, plus any coins in the watchlist, prices in USD. Add any coin making big news today. 5–8 rows.
+- commodities: Brent crude, WTI crude, gold, silver, plus anything driving PH prices this week (e.g. rice, LNG). Prices in USD with the unit in the note. 3–6 rows.
+- movers: 3–6 notable movers today (PSE, global stocks or crypto) with the reason.
 - watch: upcoming 7–14 days events that move Philippine money: BSP Monetary Board, US Fed, PH/US CPI, jobs data, weekly fuel price adjustments, RTB or bond offers, big IPOs.
 - insights: 3–5 "what it means for you" notes written for THIS person, in pesos, e.g. what a weaker peso does to their imported costs or dollar savings, what rate moves mean for their savings and loans.
+- forecasts: 6–10 outlooks covering at least BTC, ETH, one more coin in the news, USD/PHP, PSEi, Brent crude and gold. For each: direction, a likely low–high range over a stated horizon (2 weeks to end of year), confidence, and the drivers. Base every range on something you can cite: published bank/analyst targets, futures curves, options-implied ranges, consensus surveys, or the recent trading range plus scheduled catalysts. Name whose view it is in drivers and link it in url. Use "low" confidence when sources disagree. Never present a forecast as certain.
+- ideas: 4–6 "where to put money now" ideas for the Philippines, spread across conservative, moderate and aggressive, with the person's own risk level weighted most. Use today's actual numbers: current RTB / T-bill yields, Pag-IBIG MP2 latest dividend rate, top digital-bank time deposit rates (GoTyme, Maya, CIMB, Tonik, etc.), PSEi valuation vs history, index funds / UITFs / ETFs (FMETF), USD time deposits if the peso is weak, gold, and crypto only as a small slice for aggressive. Each idea says why it fits NOW, how to start (where to buy), and the minimum amount. If the emergency fund is under 3 months, make the first idea about building it in a high-yield account.
 - moves: 3–5 practical, educational next steps suited to their risk comfort. Frame them as "consider…", e.g. keep peso-cost averaging, top up the emergency fund first, look at the next RTB issue. No guaranteed-return language, no leverage, no single-stock "buy now" calls.
 - sources: the pages you used.
 
@@ -230,17 +291,18 @@ export function fuelPrompt(ctx: Context, today: string) {
 
 Use WebSearch and WebFetch to find:
 1. advisory: this week's oil price adjustment (announced by oil companies on Monday, effective Tuesday 6 AM). Give per-product changes in ₱/L (positive = increase, negative = rollback): Gasoline, Diesel, Kerosene. If the next adjustment is only forecast, say "forecast" in the summary.
-2. prices: the latest pump price ranges per brand (Petron, Shell, Caltex, Seaoil, Phoenix, Cleanfuel, Unioil, Jetti, Flying V, and others) for ${city} or the nearest city covered. The DOE publishes weekly "Prevailing Retail Pump Prices" per city and brand (doe.gov.ph, Oil Monitor / Retail Pump Prices). Community trackers and news reports are fallbacks. Include rows for ${ctx.profile.fuel} for every brand you find, and add Diesel and RON 95 rows if easy. Product names: "RON 91", "RON 95", "RON 97", "Diesel", "Premium Diesel".
-3. tips: 3–5 short, specific ways to spend less on fuel this week in ${city} (timing vs the adjustment, cheapest brand, loyalty cards, driving habits).
+2. forecast: the NEXT weekly adjustment after the advisory above. Oil firms and the DOE Oil Industry Management Bureau share early estimates from Thursday to Saturday based on four days of MOPS trading; news sites (GMA, Inquirer, Philstar, ABS-CBN) report them as "oil price hike/rollback next week". Give the expected ₱/L range per product (positive = hike, negative = rollback), the direction and 2–4 drivers (Brent/MOPS trend, peso vs dollar, OPEC+, geopolitics). If no estimate is out yet, infer only the likely direction from this week's MOPS and Brent movement, leave changes empty, and say so in summary.
+3. prices: the latest pump price ranges per brand (Petron, Shell, Caltex, Seaoil, Phoenix, Cleanfuel, Unioil, Jetti, Flying V, and others) for ${city} or the nearest city covered. The DOE publishes weekly "Prevailing Retail Pump Prices" per city and brand (doe.gov.ph, Oil Monitor / Retail Pump Prices). Community trackers and news reports are fallbacks. Include rows for ${ctx.profile.fuel} for every brand you find, and add Diesel and RON 95 rows if easy. Product names: "RON 91", "RON 95", "RON 97", "Diesel", "Premium Diesel".
+4. tips: 3–5 short, specific ways to spend less on fuel this week in ${city} (timing vs the adjustment, cheapest brand, loyalty cards, driving habits).
 
 Never invent prices. If the data is a week or more old, say so in advisory.summary and still report it. low/high are ₱ per liter.`;
 }
 
-export function newsPrompt(headlines: { title: string; source: string; summary: string }[], ctx: Context, today: string) {
-  return `Today is ${today}. Below are recent Philippine business headlines. Pick the 12–15 that matter most for an ordinary Filipino's personal finances (prices, rates, the peso, jobs and pay, taxes, banking, investing, crypto) and, for each, write ONE plain sentence on what it means for their money. Skip corporate news with no personal-finance angle.
+export function newsPrompt(headlines: { title: string; source: string; summary: string; region?: string }[], ctx: Context, today: string) {
+  return `Today is ${today}. Below are recent Philippine and global business headlines. Pick the 18–24 that matter most for an ordinary Filipino's personal finances (prices, rates, the peso, oil and fuel, jobs and pay, taxes, banking, investing, crypto, gold) and, for each, write ONE plain sentence on what it means for their money in the Philippines. Mix roughly two Philippine stories for every global one, and for global stories explain the link to the peso, pump prices, PSE or their crypto. Skip corporate news with no personal-finance angle.
 
 The reader: ${personal(ctx).replace(/\n/g, " ")}
 
 Headlines:
-${headlines.map((h, i) => `[${i}] ${h.title} (${h.source}) ${h.summary.slice(0, 180)}`).join("\n")}`;
+${headlines.map((h, i) => `[${i}] ${h.title} (${h.source}${h.region === "global" ? ", global" : ""}) ${h.summary.slice(0, 180)}`).join("\n")}`;
 }

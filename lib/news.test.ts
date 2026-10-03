@@ -53,3 +53,14 @@ test("rankNews dedupes titles and prefers money-relevant stories", () => {
   assert.equal(ranked.length, 2);
   assert.equal(ranked[0].title, "Inflation slows; BSP may cut rates");
 });
+
+test("rankNews caps stories per source and new tags apply", () => {
+  const base = { url: "https://x", summary: "", why: "", tag: "", published: "2026-10-01T03:00:00Z" };
+  const items = [1, 2, 3, 4].map((n) => ({ ...base, title: `Bitcoin story ${n}`, source: "A" }));
+  const ranked = rankNews([...items, { ...base, title: "Peso slips", source: "B" }], 10, Date.parse("2026-10-01T04:00:00Z"), 2);
+  assert.equal(ranked.filter((i) => i.source === "A").length, 2);
+  assert.equal(ranked.length, 3);
+  assert.equal(tagFor("Brent crude jumps as OPEC+ cuts"), "Oil & fuel");
+  assert.equal(tagFor("Gold hits record high"), "Gold & metals");
+  assert.equal(parseFeed(RSS, "CNBC", "global")[0].region, "global");
+});
