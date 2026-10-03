@@ -47,6 +47,7 @@ Options:
 |---|---|
 | `--dry-run` | Print the result instead of sending it |
 | `--model opus` | Deeper research (default `sonnet`; `haiku` is cheapest) |
+| `--analyze-model <name>` | Model for `analyze` only (default `claude-opus-5-5`) |
 | `--budget 2` | Max USD per task per run (default 3) |
 
 Each run prints what it cost. With `sonnet`, `all` typically costs a few dollars on

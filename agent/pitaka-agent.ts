@@ -9,7 +9,7 @@
  *   npm run agent -- analyze            # forecast + best investments from the research above
  *   npm run agent -- all                # everything (research in parallel, then analyze)
  *
- * Options: --dry-run (print, don't send)  --model <name>  --budget <usd per task>
+ * Options: --dry-run (print, don't send)  --model <name>  --analyze-model <name>  --budget <usd per task>
  * Config: agent/.env (see agent/README.md).
  */
 import { spawn } from "node:child_process";
@@ -61,13 +61,17 @@ const flag = (name: string) => {
 };
 const dryRun = args.includes("--dry-run");
 const model = flag("model") ?? process.env.AGENT_MODEL ?? "sonnet";
+// Analysis is one deep reasoning pass over research that's already gathered, so it gets the strongest model.
+const analyzeModel = flag("analyze-model") ?? process.env.AGENT_ANALYZE_MODEL ?? "claude-opus-5-5";
+const modelFor = (task: string) => (task === "analyze" ? analyzeModel : model);
 const budget = flag("budget") ?? process.env.AGENT_BUDGET_USD ?? "3";
 const claudeBin = process.env.CLAUDE_BIN ?? "claude";
 const baseUrl = (process.env.PITAKA_URL ?? "http://localhost:3100").replace(/\/+$/, "");
 const secret = process.env.INGEST_SECRET ?? "";
 
-// Positional words are task names; skip flags and the values of --model / --budget.
-const picked = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--model" && args[i - 1] !== "--budget");
+// Positional words are task names; skip flags and the values of --model / --analyze-model / --budget.
+const valued = ["--model", "--analyze-model", "--budget"];
+const picked = args.filter((a, i) => !a.startsWith("--") && !valued.includes(args[i - 1]));
 const tasks: Task[] =
   picked.length === 0 || picked.includes("all")
     ? [...TASKS]
@@ -124,7 +128,7 @@ function runClaude(task: string, prompt: string, schema: object, tools: string[]
       "--json-schema",
       JSON.stringify(schema),
       "--model",
-      model,
+      modelFor(task),
       "--max-budget-usd",
       budget,
       "--no-session-persistence",
@@ -212,7 +216,7 @@ function summarize(task: Task, data: unknown) {
 
 async function runTask(task: Task, ctx: Context) {
   const t0 = Date.now();
-  log(task, `starting with ${model}${task === "news" ? "" : " + web search"}…`);
+  log(task, `starting with ${modelFor(task)}${task === "news" ? "" : " + web search"}…`);
   // Analyze reads the research the other tasks just sent, so it fetches context with the reports.
   if (task === "analyze") ctx = (await api("/api/grow?reports=1")) as Context;
   const { data, cost } = await research(task, ctx);
@@ -225,7 +229,7 @@ async function runTask(task: Task, ctx: Context) {
     log(task, green(`✓ ${summarize(task, clean)}`) + dim(` · ${secs}s · $${cost.toFixed(2)} · dry run, not sent`));
     return cost;
   }
-  await api("/api/grow", { method: "POST", body: JSON.stringify({ kind, data: clean, source: `claude-code (${model})` }) });
+  await api("/api/grow", { method: "POST", body: JSON.stringify({ kind, data: clean, source: `claude-code (${modelFor(task)})` }) });
   log(task, green(`✓ sent: ${summarize(task, clean)}`) + dim(` · ${secs}s · $${cost.toFixed(2)}`));
   return cost;
 }
