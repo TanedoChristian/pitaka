@@ -10,10 +10,11 @@
  *   npm run agent -- all                # everything (research in parallel, then analyze)
  *
  * Options: --dry-run (print, don't send)  --model <name>  --analyze-model <name>  --budget <usd per task>
+ *          --resend <file>  (upload a result saved in agent/logs after a failed send)
  * Config: agent/.env (see agent/README.md).
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,14 +71,15 @@ const baseUrl = (process.env.PITAKA_URL ?? "http://localhost:3100").replace(/\/+
 const secret = process.env.INGEST_SECRET ?? "";
 
 // Positional words are task names; skip flags and the values of --model / --analyze-model / --budget.
-const valued = ["--model", "--analyze-model", "--budget"];
+const valued = ["--model", "--analyze-model", "--budget", "--resend"];
+const resendFile = flag("resend");
 const picked = args.filter((a, i) => !a.startsWith("--") && !valued.includes(args[i - 1]));
 const tasks: Task[] =
   picked.length === 0 || picked.includes("all")
     ? [...TASKS]
     : picked.map((p) => ALIASES[p] ?? p).filter((p): p is Task => (TASKS as readonly string[]).includes(p));
 
-if (!tasks.length) {
+if (!tasks.length && !resendFile) {
   console.error(`Unknown task "${picked.join(" ")}". Use one of: ${TASKS.join(", ")}, all`);
   process.exit(2);
 }
@@ -229,12 +231,44 @@ async function runTask(task: Task, ctx: Context) {
     log(task, green(`✓ ${summarize(task, clean)}`) + dim(` · ${secs}s · $${cost.toFixed(2)} · dry run, not sent`));
     return cost;
   }
-  await api("/api/grow", { method: "POST", body: JSON.stringify({ kind, data: clean, source: `claude-code (${modelFor(task)})` }) });
+  await send(task, { kind, data: clean, source: `claude-code (${modelFor(task)})` });
   log(task, green(`✓ sent: ${summarize(task, clean)}`) + dim(` · ${secs}s · $${cost.toFixed(2)}`));
   return cost;
 }
 
+/**
+ * Upload a finished result. The server can briefly fail (e.g. a full database pool), so retry,
+ * and if it still fails keep the result on disk: a research run is too slow to throw away.
+ */
+async function send(task: string, body: { kind: GrowKind; data: unknown; source: string }) {
+  const waits = [10_000, 30_000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await api("/api/grow", { method: "POST", body: JSON.stringify(body) });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const retryable = /HTTP 5\d\d|fetch failed|timeout|aborted/i.test(msg);
+      if (retryable && attempt < waits.length) {
+        log(task, dim(`send failed (${msg.slice(0, 120)}), retrying in ${waits[attempt] / 1000}s…`));
+        await new Promise((r) => setTimeout(r, waits[attempt]));
+        continue;
+      }
+      const dir = join(here, "logs");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `unsent-${body.kind}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+      writeFileSync(file, JSON.stringify(body, null, 2));
+      throw new Error(`${msg}\n  Result saved. Upload it later with: npm run agent -- --resend ${file}`);
+    }
+  }
+}
+
 async function main() {
+  if (resendFile) {
+    const body = JSON.parse(readFileSync(resendFile, "utf8"));
+    await send("resend", body);
+    console.log(green(`✓ resent ${body.kind} from ${resendFile}`));
+    process.exit(0);
+  }
   console.log(bold(`Pitaka agent → ${baseUrl}`) + dim(` · ${tasks.join(", ")}${dryRun ? " · dry run" : ""}`));
   const ctx = (await api("/api/grow")) as Context;
   // Research first (in parallel), then analyze on top of whatever it produced.
